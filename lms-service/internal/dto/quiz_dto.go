@@ -195,6 +195,10 @@ type QuestionResponse struct {
 	CreatedAt      time.Time               `json:"created_at"`
 	UpdatedAt      time.Time               `json:"updated_at"`
 	
+	// Skill this question measures, absent when the question is untagged.
+	SkillID   *int64 `json:"skill_id,omitempty"`
+	SkillName string `json:"skill_name,omitempty"`
+
 	// Related data
 	AnswerOptions  []AnswerOptionResponse  `json:"answer_options,omitempty"`
 	CorrectAnswers []CorrectAnswerResponse `json:"correct_answers,omitempty"`

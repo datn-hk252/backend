@@ -134,3 +134,9 @@ func (s *SkillAnalyticsService) GetStudentTrend(
 		Series:    series,
 	}, nil
 }
+
+// ListSkills returns the skill taxonomy. It is shared reference data, so any
+// authenticated caller may read it; there is nothing course-specific to guard.
+func (s *SkillAnalyticsService) ListSkills(ctx context.Context) ([]dto.SkillNode, error) {
+	return s.skillRepo.ListSkills(ctx)
+}

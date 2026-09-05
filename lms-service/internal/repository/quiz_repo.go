@@ -557,6 +557,42 @@ func (r *QuizRepository) UpsertQuestionSkill(ctx context.Context, questionID, sk
 	return err
 }
 
+// QuestionSkillRef is the skill attached to one question.
+type QuestionSkillRef struct {
+	SkillID   int64
+	SkillName string
+}
+
+// GetSkillsForQuestions returns the skill of each given question, keyed by
+// question id. Untagged questions are simply absent from the map.
+func (r *QuizRepository) GetSkillsForQuestions(ctx context.Context, questionIDs []int64) (map[int64]QuestionSkillRef, error) {
+	out := make(map[int64]QuestionSkillRef)
+	if len(questionIDs) == 0 {
+		return out, nil
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT qs.question_id, s.id, s.name
+		FROM question_skills qs
+		JOIN skills s ON s.id = qs.skill_id
+		WHERE qs.question_id = ANY($1)
+	`, pq.Array(questionIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var questionID int64
+		var ref QuestionSkillRef
+		if err := rows.Scan(&questionID, &ref.SkillID, &ref.SkillName); err != nil {
+			return nil, err
+		}
+		out[questionID] = ref
+	}
+	return out, rows.Err()
+}
+
 // DeleteQuestionSkills removes every skill link of a question.
 func (r *QuizRepository) DeleteQuestionSkills(ctx context.Context, questionID int64) error {
 	_, err := r.db.ExecContext(ctx,

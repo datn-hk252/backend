@@ -460,6 +460,10 @@ func main() {
 				analytics.GET("/teacher-dashboard", analyticsHandler.GetTeacherDashboardSummary)
 			}
 
+			// Skill taxonomy. Shared reference data used by the question editor
+			// and by every per-skill breakdown screen.
+			auth.GET("/skills", skillAnalyticsHandler.ListSkills)
+
 			// COURSE MANAGEMENT
 			courses := auth.Group("/courses")
 			{

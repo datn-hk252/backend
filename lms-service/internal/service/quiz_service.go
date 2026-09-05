@@ -335,7 +335,9 @@ func (s *QuizService) CreateQuestion(ctx context.Context, req *dto.CreateQuestio
 		return nil, err
 	}
 
-	return s.buildQuestionResponse(questionWithOptions), nil
+	resp := s.buildQuestionResponse(questionWithOptions)
+	s.attachSkills(ctx, []*dto.QuestionResponse{resp})
+	return resp, nil
 }
 
 // syncQuestionToBankAsync best-effort mirrors a committed quiz question into
@@ -489,7 +491,9 @@ func (s *QuizService) UpdateQuestion(ctx context.Context, questionID int64, req 
 		return nil, err
 	}
 
-	return s.buildQuestionResponse(questionWithOptions), nil
+	resp := s.buildQuestionResponse(questionWithOptions)
+	s.attachSkills(ctx, []*dto.QuestionResponse{resp})
+	return resp, nil
 }
 
 // DeleteQuestion deletes a question
@@ -526,15 +530,19 @@ func (s *QuizService) ListQuestions(ctx context.Context, quizID int64, userID in
 
 	// Build response based on role
 	var result []interface{}
+	var teacherViews []*dto.QuestionResponse
 	for _, q := range questions {
 		if userRole == "STUDENT" && !includeCorrectAnswers {
 			// Hide correct answers for students
 			result = append(result, s.buildStudentQuestionResponse(&q))
 		} else {
 			// Show everything for teachers
-			result = append(result, s.buildQuestionResponse(&q))
+			resp := s.buildQuestionResponse(&q)
+			teacherViews = append(teacherViews, resp)
+			result = append(result, resp)
 		}
 	}
+	s.attachSkills(ctx, teacherViews)
 
 	return result, nil
 }
@@ -1808,6 +1816,32 @@ func (s *QuizService) buildQuizResponseWithStats(quiz *models.QuizWithStats) *dt
 		response.AverageScore = &avgScore
 	}
 	return response
+}
+
+// attachSkills fills SkillID and SkillName on the given responses with one
+// batch query, so a list of questions does not turn into N lookups.
+func (s *QuizService) attachSkills(ctx context.Context, responses []*dto.QuestionResponse) {
+	if len(responses) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(responses))
+	for _, r := range responses {
+		ids = append(ids, r.ID)
+	}
+
+	skills, err := s.quizRepo.GetSkillsForQuestions(ctx, ids)
+	if err != nil {
+		// A missing skill label must not fail the whole question list.
+		logger.Error("attachSkills failed", err)
+		return
+	}
+	for _, r := range responses {
+		if ref, ok := skills[r.ID]; ok {
+			id := ref.SkillID
+			r.SkillID = &id
+			r.SkillName = ref.SkillName
+		}
+	}
 }
 
 // buildQuestionResponse builds question response for teachers
