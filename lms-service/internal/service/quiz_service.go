@@ -280,6 +280,14 @@ func (s *QuizService) CreateQuestion(ctx context.Context, req *dto.CreateQuestio
 		return nil, fmt.Errorf("failed to create question: %w", err)
 	}
 
+	// Tag the question with a skill. This is what lets a submitted attempt be
+	// broken down by skill instead of collapsing into a single total score.
+	if req.SkillID != nil {
+		if err := s.quizRepo.UpsertQuestionSkill(ctx, question.ID, *req.SkillID, req.Difficulty); err != nil {
+			return nil, fmt.Errorf("failed to tag question skill: %w", err)
+		}
+	}
+
 	// Create answer options (for choice questions)
 	if len(req.AnswerOptions) > 0 {
 		for _, optReq := range req.AnswerOptions {
@@ -463,6 +471,17 @@ func (s *QuizService) UpdateQuestion(ctx context.Context, questionID int64, req 
 
 	if err := s.quizRepo.UpdateQuestion(ctx, question); err != nil {
 		return nil, fmt.Errorf("failed to update question: %w", err)
+	}
+
+	// Update the question's skill. skill_id = 0 means clear the link.
+	if req.SkillID != nil {
+		if *req.SkillID == 0 {
+			if err := s.quizRepo.DeleteQuestionSkills(ctx, questionID); err != nil {
+				return nil, fmt.Errorf("failed to clear question skill: %w", err)
+			}
+		} else if err := s.quizRepo.UpsertQuestionSkill(ctx, questionID, *req.SkillID, req.Difficulty); err != nil {
+			return nil, fmt.Errorf("failed to tag question skill: %w", err)
+		}
 	}
 
 	questionWithOptions, err := s.quizRepo.GetQuestionWithOptions(ctx, questionID)

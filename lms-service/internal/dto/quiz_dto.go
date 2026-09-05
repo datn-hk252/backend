@@ -150,6 +150,13 @@ type CreateQuestionRequest struct {
 	
 	// Correct answers (for text/fill-blank questions)
 	CorrectAnswers []CreateCorrectAnswerRequest `json:"correct_answers"`
+
+	// Skill this question measures, written to question_skills. Leaving it out
+	// still stores the question, but that question then contributes nothing to
+	// the per-skill breakdown, which keeps older quizzes working unchanged.
+	SkillID *int64 `json:"skill_id"`
+	// Difficulty of this question within that skill, from 0 to 1.
+	Difficulty *float64 `json:"difficulty" binding:"omitempty,min=0,max=1"`
 }
 
 // BatchCreateQuestionsRequest represents request to create multiple questions at once
@@ -166,6 +173,10 @@ type UpdateQuestionRequest struct {
 	OrderIndex     *int                    `json:"order_index"`
 	Settings       *map[string]interface{} `json:"settings"`
 	IsRequired     *bool                   `json:"is_required"`
+
+	// Reassign the question's skill. Send skill_id = 0 to clear it entirely.
+	SkillID    *int64   `json:"skill_id"`
+	Difficulty *float64 `json:"difficulty" binding:"omitempty,min=0,max=1"`
 }
 
 // QuestionResponse represents question details

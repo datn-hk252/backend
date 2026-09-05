@@ -415,65 +415,6 @@ func (r *AnalyticsRepository) GetQuizCourseID(ctx context.Context, quizID int64)
 	return courseID, err
 }
 
-func (r *AnalyticsRepository) GetStudentWeaknesses(ctx context.Context, studentID, courseID int64) ([]dto.WeakNode, error) {
-	rows, err := r.db.QueryContext(ctx, `
-		SELECT
-			skp.node_id,
-			kn.name AS node_title,
-			skp.wrong_count,
-			skp.total_attempts,
-			skp.mastery_level,
-			CASE
-				WHEN skp.mastery_level >= 0.8 THEN 'Rất tốt'
-				WHEN skp.mastery_level >= 0.6 THEN 'TB'
-				WHEN skp.mastery_level >= 0.4 THEN 'Yếu'
-				ELSE 'Cần cải thiện'
-			END AS status_level
-		FROM student_knowledge_progress skp
-		JOIN knowledge_nodes kn ON kn.id = skp.node_id
-		WHERE skp.student_id = $1 AND skp.course_id = $2
-		ORDER BY skp.mastery_level ASC, skp.wrong_count DESC
-	`, studentID, courseID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var result []dto.WeakNode
-	for rows.Next() {
-		var node dto.WeakNode
-		if err := rows.Scan(
-			&node.NodeID, &node.NodeTitle, &node.WrongCount,
-			&node.TotalAttempt, &node.MasteryLevel, &node.StatusLevel,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, node)
-	}
-	return result, rows.Err()
-}
-
-// GetFlashcardStats returns Spaced Repetition stats for the student in a course.
-func (r *AnalyticsRepository) GetFlashcardStats(ctx context.Context, studentID, courseID int64) (*dto.FlashcardStatsResponse, error) {
-	var stats dto.FlashcardStatsResponse
-	err := r.db.QueryRowContext(ctx, `
-		SELECT
-			COUNT(*) FILTER (WHERE next_review_date <= CURRENT_DATE) AS today_due_count,
-			COUNT(*) FILTER (WHERE next_review_date > CURRENT_DATE)  AS upcoming_count,
-			COUNT(*)                                                  AS learning_count
-		FROM flashcard_repetitions
-		WHERE student_id = $1 AND course_id = $2
-	`, studentID, courseID).Scan(
-		&stats.TodayDueCount,
-		&stats.UpcomingCount,
-		&stats.LearningCount,
-	)
-	if err != nil && err != sql.ErrNoRows {
-		return nil, err
-	}
-	return &stats, nil
-}
-
 // GetStudentLessonProgressSummary aggregates total and completed content count per content type for a course.
 func (r *AnalyticsRepository) GetStudentLessonProgressSummary(ctx context.Context, courseID, studentID int64) (dto.LessonProgressSummary, error) {
 	rows, err := r.db.QueryContext(ctx, `
