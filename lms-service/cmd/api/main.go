@@ -116,16 +116,15 @@ func main() {
 	forumRepo := repository.NewForumRepository(db)
 	progressRepo := repository.NewProgressRepository(db)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
+	skillAnalyticsRepo := repository.NewSkillAnalyticsRepository(db)
 	roleDefRepo := repository.NewRoleDefinitionRepository(db)
 	permRepo := repository.NewPermissionRepository(db)
 	orgRepo := repository.NewOrganizationRepository(db)
 
-	flashcardRepo := repository.NewFlashcardRepository(db)
 	microLessonRepo := repository.NewMicroLessonRepository(db)
 	microInteractionRepo := repository.NewMicroInteractionRepository(db)
 	microQuizRepo := repository.NewMicroQuizRepository(db)
 	sectionOverviewRepo := repository.NewSectionOverviewRepository(db)
-	learningEventRepo := repository.NewLearningEventRepository(db)
 
 	kafka.InitProducer()
 	defer kafka.CloseProducer()
@@ -225,11 +224,10 @@ func main() {
 	syncSecret := os.Getenv("LMS_SYNC_SECRET")
 	progressService := service.NewProgressService(progressRepo, enrollmentRepo, redisClient)
 	analyticsService := service.NewAnalyticsService(analyticsRepo, courseRepo, enrollmentRepo, aiClient, redisClient)
-	flashcardService := service.NewFlashcardService(flashcardRepo, aiClient, redisClient)
+	skillAnalyticsService := service.NewSkillAnalyticsService(skillAnalyticsRepo, courseRepo, quizRepo)
 	microInteractionService := service.NewMicroInteractionService(microInteractionRepo, microLessonRepo)
 	roleAdminService := service.NewRoleAdminService(roleDefRepo, userRepo, redisClient)
 	permService := service.NewPermissionService(permRepo, redisClient)
-	learningEventService := service.NewLearningEventService(learningEventRepo, service.NewKafkaService())
 
 	// Heatmap analytics worker: consumes Quick Action Panel interactions
 	// off `lms.analytics.interactions` and updates knowledge_node_mastery.
@@ -249,8 +247,7 @@ func main() {
 	forumHandler := handler.NewForumHandler(forumService)
 	progressHandler := handler.NewProgressHandler(progressService)
 	analyticsHandler := handler.NewAnalyticsHandler(analyticsService, aiClient)
-	aiHandler := handler.NewAIHandler(aiClient, courseRepo, quizRepo, redisClient)
-	flashcardHandler := handler.NewFlashcardHandler(flashcardService, enrollmentService)
+	skillAnalyticsHandler := handler.NewSkillAnalyticsHandler(skillAnalyticsService)
 	microLessonHandler := handler.NewMicroLessonHandler(microLessonRepo, courseRepo, aiClient, redisClient)
 	microQuizHandler := handler.NewMicroQuizHandler(microQuizRepo, courseRepo, quizRepo, aiClient, redisClient)
 	microInteractionHandler := handler.NewMicroInteractionHandler(microInteractionService)
@@ -258,9 +255,6 @@ func main() {
 	roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
 	permHandler := handler.NewPermissionHandler(permService)
 	orgHandler := handler.NewOrganizationHandler(orgService)
-	courseBlueprintHandler := handler.NewCourseBlueprintHandler(aiClient, orgRepo, courseService)
-	competencyAIHandler := handler.NewCompetencyAIHandler(aiClient)
-	personalizedLearningHandler := handler.NewPersonalizedLearningHandler(learningEventService, courseService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -467,17 +461,8 @@ func main() {
 			}
 
 			// COURSE MANAGEMENT
-			auth.POST("/course-blueprints", courseBlueprintHandler.Create)
-			auth.GET("/course-blueprints/:blueprintId", courseBlueprintHandler.Get)
-			auth.PUT("/course-blueprints/:blueprintId", courseBlueprintHandler.Update)
-			auth.POST("/course-blueprints/:blueprintId/approve", courseBlueprintHandler.Approve)
-			auth.POST("/course-blueprints/:blueprintId/apply", courseBlueprintHandler.Apply)
-			auth.POST("/course-blueprints/:blueprintId/cancel", courseBlueprintHandler.Cancel)
 			courses := auth.Group("/courses")
 			{
-				courses.POST("/:courseId/material-routing", courseBlueprintHandler.CreateMaterialRouting)
-				courses.GET("/:courseId/material-routing/:routingId", courseBlueprintHandler.GetMaterialRouting)
-				courses.POST("/:courseId/material-routing/apply", courseBlueprintHandler.ApplyMaterialRouting)
 				// Public course routes (anyone authenticated can view published courses)
 				courses.GET("", courseHandler.ListPublishedCourses)
 				courses.GET("/categories", courseHandler.GetCategories)
@@ -505,34 +490,30 @@ func main() {
 				courses.GET("/:courseId/quiz-analytics", analyticsHandler.GetCourseQuizAnalytics)
 				courses.GET("/:courseId/student-progress-overview", analyticsHandler.GetStudentProgressOverview)
 
+				// -- Phan ra ket qua theo nang luc thanh phan (Teacher / Admin)
+				// Tra loi cau hoi cua trung tam: hoc vien yeu o dau, chu khong
+				// chi biet hoc vien duoc bao nhieu diem.
+				courses.GET("/:courseId/quizzes/:quizId/skill-breakdown",
+					skillAnalyticsHandler.GetClassQuizSkillBreakdown)
+				courses.GET("/:courseId/quizzes/:quizId/skill-breakdown/students/:studentId",
+					skillAnalyticsHandler.GetStudentQuizSkillBreakdown)
+				courses.GET("/:courseId/skill-trend/students/:studentId",
+					skillAnalyticsHandler.GetStudentSkillTrend)
+
 				// Course learners management
 				courses.GET("/:courseId/learners", enrollmentHandler.GetCourseLearners)
 				courses.POST("/:courseId/bulk-enroll", enrollmentHandler.BulkEnroll)
 
 				// -- Analytics (Student) -----------------------------------
 				courses.GET("/:courseId/my-quiz-scores", analyticsHandler.GetMyQuizScores)
-				courses.GET("/:courseId/analytics/weaknesses", analyticsHandler.GetStudentWeaknesses)
-				courses.GET("/:courseId/analytics/flashcard-stats", analyticsHandler.GetFlashcardStats)
-				courses.GET("/:courseId/analytics/student-summary", analyticsHandler.GetStudentAnalyticsSummary)
 
 				// -- Flashcards (Student) ----------------------------------
-				courses.POST("/:courseId/nodes/:nodeId/flashcards/generate", flashcardHandler.GenerateFlashcards)
-				courses.POST("/:courseId/flashcards/generate", flashcardHandler.GenerateFlashcards)
-				courses.GET("/:courseId/flashcards/due", flashcardHandler.ListDueFlashcards)
-				courses.GET("/:courseId/nodes/:nodeId/flashcards", flashcardHandler.ListFlashcards)
-				courses.GET("/:courseId/flashcards", flashcardHandler.ListFlashcards)
-				courses.POST("/:courseId/flashcards/bulk-save", flashcardHandler.BulkSaveFlashcards)
 
 				// -- Progress tracking (Student) ---------------------------
 				courses.GET("/:courseId/my-progress", progressHandler.GetMyProgress)
 				courses.GET("/:courseId/progress-detail", progressHandler.GetMyProgressDetail)
 			}
 
-			// FLASHCARD ROUTE (Outside course root context)
-			flashcards := auth.Group("/flashcards")
-			{
-				flashcards.POST("/:flashcardId/review", flashcardHandler.ReviewFlashcard)
-			}
 
 			// CONTENT MANAGEMENT
 			content := auth.Group("/content")
@@ -542,11 +523,7 @@ func main() {
 				content.DELETE("/:contentId", courseHandler.DeleteContent)
 				// -- Progress tracking (Student) ---------------------------
 				content.POST("/:contentId/complete", progressHandler.MarkComplete)
-				content.POST("/:contentId/process", aiHandler.TriggerDocumentProcess)
 
-				content.POST("/:contentId/ai-index", aiHandler.TriggerContentAutoIndex)
-				content.GET("/:contentId/ai-index-status", aiHandler.GetContentAutoIndexStatus)
-				content.POST("/batch-ai-index-status", aiHandler.BatchGetContentAutoIndexStatus)
 			}
 
 			// ENROLLMENT MANAGEMENT (Internal Service Secret OR JWT)
@@ -663,117 +640,8 @@ func main() {
 				}
 			}
 
-			aiGroup := auth.Group("/ai")
-			{
-				// -- Phase 1: Error Diagnosis ------------------------------------------
-				// POST /api/v1/ai/attempts/:attemptId/questions/:questionId/diagnose
-				aiGroup.POST("/attempts/:attemptId/questions/:questionId/diagnose",
-					aiHandler.DiagnoseWrongAnswer)
-				aiGroup.GET("/knowledge-graph/global",
-					aiHandler.GetGlobalKnowledgeGraph)
-				aiGroup.POST("/knowledge-graph/link-global",
-					aiHandler.TriggerGlobalLinking)
 
-				// System-wide Polling Endpoint for AI Jobs
-				aiGroup.GET("/jobs/:jobId/status",
-					aiHandler.GetJobStatus())
 
-				// Quick Action Panel - Concept Check
-				aiGroup.POST("/concept-check",
-					aiHandler.GenerateConceptCheck)
-
-				// Quiz Smart Import - Parse raw text into structured questions
-				aiGroup.POST("/quizzes/parse-text",
-					aiHandler.ParseQuizText)
-
-				// Quiz Smart Import - Parse ANY document file into structured questions
-				aiGroup.POST("/quizzes/parse-file",
-					aiHandler.ParseQuizFile)
-
-				// Spaced Repetition total due reviews (student dashboard)
-				aiGroup.GET("/reviews/total-due-today",
-					aiHandler.GetTotalDueReviews)
-			}
-
-			// Per-course AI routes (reuse courseId param)
-			aiCourses := auth.Group("/courses/:courseId/ai")
-			{
-				// -- Phase 1: Heatmap --------------------------------------------------
-				aiCourses.GET("/heatmap",
-					middleware.RequirePermission(permService, "ANALYTICS_VIEW"),
-					aiHandler.GetClassHeatmap)
-
-				aiCourses.GET("/my-heatmap",
-					aiHandler.GetStudentHeatmap)
-
-				// -- Knowledge Graph ---------------------------------------------------
-				aiCourses.POST("/nodes",
-					middleware.RequirePermission(permService, "AI_INDEX"),
-					aiHandler.CreateKnowledgeNode)
-
-				aiCourses.GET("/nodes",
-					aiHandler.ListKnowledgeNodes)
-
-				// -- Phase 2: Quiz Generation ------------------------------------------
-				aiCourses.POST("/generate-quiz",
-					middleware.RequirePermission(permService, "AI_GENERATE"),
-					aiHandler.GenerateQuiz)
-
-				aiCourses.GET("/drafts",
-					middleware.RequirePermission(permService, "AI_GENERATE"),
-					aiHandler.ListDraftQuestions)
-
-				// -- Phase 2: Spaced Repetition ----------------------------------------
-				aiCourses.GET("/reviews/due",
-					aiHandler.GetDueReviews)
-
-				aiCourses.POST("/reviews/record",
-					aiHandler.RecordReviewResponse)
-
-				aiCourses.GET("/reviews/stats",
-					aiHandler.GetReviewStats)
-
-				aiCourses.GET("/knowledge-graph", aiHandler.GetCourseKnowledgeGraph)
-
-				// "Compact Graph" - teacher-triggered intelligent node consolidation.
-				aiCourses.GET("/consolidate-graph/preview",
-					middleware.RequirePermission(permService, "AI_INDEX"),
-					aiHandler.PreviewGraphConsolidation)
-				aiCourses.POST("/consolidate-graph",
-					middleware.RequirePermission(permService, "AI_INDEX"),
-					aiHandler.ConsolidateGraph)
-
-				aiCourses.GET("/nodes/:nodeId/chunks", aiHandler.GetNodeChunks)
-				aiCourses.DELETE("/nodes",
-					middleware.RequirePermission(permService, "AI_INDEX"),
-					aiHandler.DeleteAllKnowledgeNodes)
-				aiCourses.DELETE("/nodes/:nodeId", aiHandler.DeleteKnowledgeNode)
-
-				// -- Graph Teacher Tools ---------------------------------------
-				aiCourses.POST("/link-isolated",
-					middleware.RequirePermission(permService, "AI_INDEX"),
-					aiHandler.LinkIsolatedNodes)
-				aiCourses.GET("/link-isolated/status",
-					aiHandler.GetLinkIsolatedStatus)
-				aiCourses.POST("/graph/edge",
-					middleware.RequirePermission(permService, "AI_INDEX"),
-					aiHandler.UpsertGraphEdge)
-				aiCourses.DELETE("/graph/edge",
-					middleware.RequirePermission(permService, "AI_INDEX"),
-					aiHandler.DeleteGraphEdge)
-			}
-
-			// Quiz draft review (outside course context)
-			quizDrafts := auth.Group("/ai/quiz-drafts")
-			{
-				quizDrafts.POST("/:genId/approve",
-					middleware.RequirePermission(permService, "AI_GENERATE"),
-					aiHandler.ApproveQuestion)
-
-				quizDrafts.POST("/:genId/reject",
-					middleware.RequirePermission(permService, "AI_GENERATE"),
-					aiHandler.RejectQuestion)
-			}
 
 			// -- Micro-Lessons (Teacher / Admin) ---------------------------
 			// Per-course generation triggers + job listing.
@@ -832,22 +700,9 @@ func main() {
 				sectionOverviewGroup.POST("/quizzes/:quizId/publish", sectionOverviewHandler.PublishQuiz)
 			}
 
-			// -- Personalized Learning Engine ------------------------
-			personalizedLearning := auth.Group("/personalized-learning")
-			{
-				// Track learning events
-				personalizedLearning.POST("/events", personalizedLearningHandler.TrackLearningEvent)
-
-				// Student APIs
-				personalizedLearning.GET("/students/:studentId/skills/overview", personalizedLearningHandler.GetStudentSkillsOverview)
-				personalizedLearning.GET("/students/:studentId/recommendations/daily", personalizedLearningHandler.GetDailyRecommendations)
-				personalizedLearning.GET("/students/:studentId/recommendations/discover-courses", personalizedLearningHandler.GetDiscoverCoursesRecommendations)
-				personalizedLearning.GET("/students/:studentId/trajectory", personalizedLearningHandler.GetLearningTrajectory)
-			}
 
 			// AI only returns an editable draft. It has no write access to
 			// competency frameworks, course outcomes, or assessment mappings.
-			auth.POST("/competency-suggestions", competencyAIHandler.Suggest)
 		}
 
 		// -- Internal callbacks (AI service -> LMS) -------------------------
@@ -860,7 +715,6 @@ func main() {
 			internalAI.GET("/contents/:contentId/hierarchy", courseHandler.InternalGetContentHierarchy)
 
 			// Skill-based personalization payload for recommender-service
-			internalAI.GET("/students/:studentId/skill-profile", personalizedLearningHandler.InternalGetStudentSkillProfile)
 		}
 
 		internal := v1.Group("/internal/micro-lessons")

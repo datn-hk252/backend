@@ -571,3 +571,35 @@ func isVideo(ext string) bool {
 	}
 	return false
 }
+
+// Chuyen sang day tu ai_handler.go khi cum knowledge graph duoc tach ra.
+// Bai kiem thu cua ham nam trong file_handler_test.go, va bo doan nhan dien
+// kieu MIME theo duoi tep nay se can lai khi them hoc lieu nghe.
+// documentContentType returns the MIME type used by the AI document parser.
+// It intentionally uses the storage path rather than client-provided metadata
+// so existing uploaded documents are handled correctly as well.
+func documentContentType(filePath string) string {
+	switch strings.ToLower(filepath.Ext(filePath)) {
+	case ".pdf":
+		return "application/pdf"
+	case ".doc":
+		return "application/msword"
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".ppt":
+		return "application/vnd.ms-powerpoint"
+	case ".pptx":
+		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	case ".xls":
+		return "application/vnd.ms-excel"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	case ".txt":
+		return "text/plain"
+	case ".csv":
+		return "text/csv"
+	case ".md", ".markdown":
+		return "text/markdown"
+	}
+	return ""
+}

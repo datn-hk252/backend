@@ -532,6 +532,38 @@ func (r *QuizRepository) ListQuestionsWithOptions(ctx context.Context, quizID in
 // ============================================
 
 // CreateAnswerOption creates a new answer option
+// UpsertQuestionSkill ties a question to one skill in the question_skills join
+// table.
+//
+// A question carries at most one skill. The table has UNIQUE(question_id,
+// skill_id), so calling again with the same pair just updates the difficulty,
+// while switching to another skill deletes the old row first — otherwise one
+// question would count towards two skills at once.
+func (r *QuizRepository) UpsertQuestionSkill(ctx context.Context, questionID, skillID int64, difficulty *float64) error {
+	if _, err := r.db.ExecContext(ctx,
+		`DELETE FROM question_skills WHERE question_id = $1 AND skill_id <> $2`,
+		questionID, skillID,
+	); err != nil {
+		return err
+	}
+
+	_, err := r.db.ExecContext(ctx, `
+		INSERT INTO question_skills (question_id, skill_id, difficulty)
+		VALUES ($1, $2, $3)
+		ON CONFLICT (question_id, skill_id)
+		DO UPDATE SET difficulty = EXCLUDED.difficulty
+	`, questionID, skillID, difficulty)
+
+	return err
+}
+
+// DeleteQuestionSkills removes every skill link of a question.
+func (r *QuizRepository) DeleteQuestionSkills(ctx context.Context, questionID int64) error {
+	_, err := r.db.ExecContext(ctx,
+		`DELETE FROM question_skills WHERE question_id = $1`, questionID)
+	return err
+}
+
 func (r *QuizRepository) CreateAnswerOption(ctx context.Context, option *models.QuizAnswerOption) error {
 	query := `
 		INSERT INTO quiz_answer_options (
