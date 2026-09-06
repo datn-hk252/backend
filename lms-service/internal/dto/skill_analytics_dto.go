@@ -77,3 +77,14 @@ type StudentSkillTrend struct {
 	CourseID  int64              `json:"course_id"`
 	Series    []SkillTrendSeries `json:"series"`
 }
+
+// SkillNode is one entry of the skill taxonomy. The parent's name is flattened
+// onto the row so a client can group the list without a second lookup.
+type SkillNode struct {
+	ID          int64  `json:"id"`
+	Code        string `json:"code"`
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	ParentID    *int64 `json:"parent_id,omitempty"`
+	ParentName  string `json:"parent_name,omitempty"`
+}

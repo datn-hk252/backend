@@ -277,3 +277,38 @@ func (r *SkillAnalyticsRepository) GetQuizMeta(
 	}
 	return title, submittedAt, nil
 }
+
+// ListSkills returns the active global skill taxonomy, roots before their own
+// children, so a picker can render it as a grouped list.
+func (r *SkillAnalyticsRepository) ListSkills(ctx context.Context) ([]dto.SkillNode, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT s.id, s.code, s.name, COALESCE(s.description, ''),
+		       s.parent_skill_id, COALESCE(p.name, '')
+		FROM skills s
+		LEFT JOIN skills p ON p.id = s.parent_skill_id
+		WHERE s.framework_id IS NULL AND s.status = 'ACTIVE'
+		ORDER BY COALESCE(p.name, s.name), s.parent_skill_id NULLS FIRST, s.name
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []dto.SkillNode
+	for rows.Next() {
+		var n dto.SkillNode
+		var code sql.NullString
+		var parentID sql.NullInt64
+		if err := rows.Scan(&n.ID, &code, &n.Name, &n.Description,
+			&parentID, &n.ParentName); err != nil {
+			return nil, err
+		}
+		n.Code = code.String
+		if parentID.Valid {
+			id := parentID.Int64
+			n.ParentID = &id
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}

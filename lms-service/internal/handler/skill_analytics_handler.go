@@ -133,3 +133,19 @@ func (h *SkillAnalyticsHandler) GetStudentSkillTrend(c *gin.Context) {
 
 	c.JSON(http.StatusOK, dto.NewDataResponse(data))
 }
+
+// ListSkills godoc
+// @Summary      List the skill taxonomy
+// @Tags         Analytics - Skills
+// @Produce      json
+// @Security     BearerAuth
+// @Router       /skills [get]
+func (h *SkillAnalyticsHandler) ListSkills(c *gin.Context) {
+	data, err := h.skillAnalyticsService.ListSkills(c.Request.Context())
+	if err != nil {
+		logger.Error("ListSkills failed", err)
+		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("internal_error", "Failed to list skills"))
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewDataResponse(data))
+}
