@@ -2,13 +2,6 @@
 spring:
   application:
     name: Club
-  kafka:
-    bootstrap-servers: ${KAFKA_BROKERS:localhost:9092}
-    consumer:
-      group-id: auth-notification-group
-      auto-offset-reset: earliest
-      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
   mail:
     host: smtp.gmail.com
     port: 587
@@ -92,16 +85,6 @@ lms:
   api:
     url: ${LMS_API_URL}
     secret: ${LMS_API_SECRET}
-
-chat:
-  api:
-    url: ${CHAT_API_URL:}
-    secret: ${CHAT_SYNC_SECRET:}
-
-ai-service:
-  api:
-    url: ${AI_SERVICE_URL}
-    secret: ${AI_SERVICE_SECRET}
 
 google:
   client-id: ${GOOGLE_CLIENT_ID}

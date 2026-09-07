@@ -2,11 +2,8 @@ package com.example.demo.model;
 
 import com.example.demo.enums.AuthProvider;
 
-import com.example.demo.enums.UserTeam;
 import jakarta.persistence.*;
 import lombok.*;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.LinkedHashSet;
 import java.util.Set;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -51,17 +48,28 @@ public class User {
     @Builder.Default
     private Set<String> lmsRoles = new LinkedHashSet<>();
 
-    @Column(nullable = false, length = 50)
-    private String team;
-
+    /** Student or teacher number. Printed on rosters, so it stays unique. */
     @Column(nullable = false, unique = true, length = 100)
     private String code;
 
-    @Column(nullable = false, length = 20)
-    private String type;
+    /**
+     * Club-era columns kept only because the database says NOT NULL.
+     *
+     * <p>The fork divided members into a team (Research, Engineer, ...) and a
+     * training type (CLC, TN, DT); an English centre has neither. Hibernate runs
+     * with {@code ddl-auto=update}, which never drops a constraint, so on any
+     * database created before this change the columns must still receive a
+     * value. Nothing reads them.
+     */
+    public static final String LEGACY_UNUSED = "N/A";
 
-    @Column(nullable = true, length = 255)
-    private String organization;
+    @Column(nullable = false, length = 50)
+    @Builder.Default
+    private String team = LEGACY_UNUSED;
+
+    @Column(nullable = false, length = 20)
+    @Builder.Default
+    private String type = LEGACY_UNUSED;
 
     @Column(nullable = false)
     @Builder.Default
@@ -86,16 +94,6 @@ public class User {
     @Column(nullable = false)
     @Builder.Default
     private Boolean pendingApproval = false;
-
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL)
-    @JsonIgnore
-    @Builder.Default
-    private List<UserTask> userTasks = new ArrayList<>();
-
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
-    @JsonIgnore
-    @Builder.Default
-    private List<OrganizationMember> organizationMembers = new ArrayList<>();
 
     public Set<String> effectiveRoles() {
         LinkedHashSet<String> result = new LinkedHashSet<>();

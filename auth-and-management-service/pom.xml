@@ -175,12 +175,6 @@
 		</dependency>
 
 		<!-- 4. Spring Security Test (cookie assertions, @WithMockUser) -->
-		<!-- Spring Kafka -->
-		<dependency>
-			<groupId>org.springframework.kafka</groupId>
-			<artifactId>spring-kafka</artifactId>
-		</dependency>
-
 	</dependencies>
 
 	<build>

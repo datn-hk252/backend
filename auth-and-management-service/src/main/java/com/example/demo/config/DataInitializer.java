@@ -1,20 +1,12 @@
 package com.example.demo.config;
 
 import com.example.demo.enums.UserRole;
-import com.example.demo.enums.UserTeam;
-import com.example.demo.enums.UserType;
 import com.example.demo.model.LmsRoleMapping;
 import com.example.demo.model.Role;
 import com.example.demo.model.User;
 import com.example.demo.repository.LmsRoleMappingRepository;
 import com.example.demo.repository.RoleRepository;
 import com.example.demo.repository.UserRepository;
-import com.example.demo.repository.TeamRepository;
-import com.example.demo.repository.UserTypeOptionRepository;
-import com.example.demo.repository.OrganizationRepository;
-import com.example.demo.model.Team;
-import com.example.demo.model.UserTypeOption;
-import com.example.demo.model.Organization;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
@@ -32,9 +24,6 @@ public class DataInitializer implements CommandLineRunner {
     private final RoleRepository roleRepository;
     private final LmsRoleMappingRepository lmsMappingRepository;
     private final PasswordEncoder passwordEncoder;
-    private final TeamRepository teamRepository;
-    private final UserTypeOptionRepository typeRepository;
-    private final OrganizationRepository organizationRepository;
     private final org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
     private final com.example.demo.service.user.UserSyncService userSyncService;
 
@@ -55,18 +44,8 @@ public class DataInitializer implements CommandLineRunner {
         } catch (Exception e) {
             log.error("Failed to drop check constraints: {}", e.getMessage());
         }
-        seedOrganizations();
         seedRoles();
-        seedTeams();
-        seedTypes();
         seedAdminUser();
-
-        log.info("Triggering automatic startup sync of existing users to chat-service...");
-        try {
-            userSyncService.syncUsersToChat(userRepository.findAll());
-        } catch (Exception e) {
-            log.error("Startup user sync to chat failed: {}", e.getMessage());
-        }
 
         // The admin seeded above never goes through a path that syncs it to LMS, so on a
         // fresh database it can log in but has no role there. Runs asynchronously and
@@ -79,32 +58,36 @@ public class DataInitializer implements CommandLineRunner {
         }
     }
 
-    private void seedOrganizations() {
-        if (organizationRepository.existsBySlug("bdc")) return;
-
-        organizationRepository.save(Organization.builder()
-                .name("Big Data Club")
-                .slug("bdc")
-                .description("Default organization")
-                .isActive(true)
-                .settings("{\"allow_cross_org_courses\": true, \"default_course_visibility\": \"PUBLIC\"}")
-                .build());
-        log.info("Seeded default organization (Big Data Club)");
-    }
-
     /**
      * Seed the dynamic roles table and default LMS mappings.
      * Idempotent - skips if roles already exist.
      */
     private void seedRoles() {
-        seedRole(UserRole.ROLE_ADMIN, "Administrator", "ADMIN");
-        seedRole(UserRole.ROLE_MANAGER, "Manager", "TEACHER");
-        seedRole(UserRole.ROLE_USER, "Member", "STUDENT");
+        seedRole(UserRole.ROLE_ADMIN, "Quản trị viên", "ADMIN", "Administrator");
+        seedRole(UserRole.ROLE_MANAGER, "Giáo viên", "TEACHER", "Manager");
+        seedRole(UserRole.ROLE_USER, "Học viên", "STUDENT", "Member");
         log.debug("Role seeding complete");
     }
 
-    private void seedRole(String roleName, String displayName, String defaultLmsRole) {
-        if (roleRepository.existsByName(roleName)) return;
+    /**
+     * Create the role if it is missing, otherwise leave it alone - except for the
+     * one case of a role still carrying the club-era display name it was seeded
+     * with. Seeding runs once, so renaming the constants above would otherwise
+     * never reach a database created before this change; renaming only that exact
+     * literal cannot clobber a name an admin chose deliberately.
+     */
+    private void seedRole(String roleName, String displayName, String defaultLmsRole,
+                          String legacyDisplayName) {
+        var existing = roleRepository.findByName(roleName);
+        if (existing.isPresent()) {
+            var role = existing.get();
+            if (legacyDisplayName.equals(role.getDisplayName())) {
+                role.setDisplayName(displayName);
+                roleRepository.save(role);
+                log.info("Renamed role {} from \"{}\" to \"{}\"", roleName, legacyDisplayName, displayName);
+            }
+            return;
+        }
 
         var role = roleRepository.save(Role.builder()
                 .name(roleName)
@@ -127,39 +110,15 @@ public class DataInitializer implements CommandLineRunner {
         }
 
         var admin = User.builder()
-                .name("Nguyễn Phúc Nhân")
+                .name("Quản trị viên")
                 .email(adminEmail)
                 .password(passwordEncoder.encode(adminPassword))
                 .role(UserRole.ROLE_ADMIN)
-                .team(UserTeam.RESEARCH)
                 .code("000000")
-                .type(UserType.DT)
-                .totalScore(10000)
                 .active(true)
                 .build();
 
         userRepository.save(admin);
         log.info("Default admin user created: {}", adminEmail);
-    }
-
-    private void seedTeams() {
-        if (teamRepository.count() > 0) return;
-
-        teamRepository.save(Team.builder().code("RESEARCH").name("Research").description("Research Division").build());
-        teamRepository.save(Team.builder().code("ENGINEER").name("Engineer").description("Engineering & Development Division").build());
-        teamRepository.save(Team.builder().code("EVENT").name("Event").description("Event Planning Division").build());
-        teamRepository.save(Team.builder().code("MEDIA").name("Media").description("Media & Marketing Division").build());
-
-        log.info("Default teams seeded successfully.");
-    }
-
-    private void seedTypes() {
-        if (typeRepository.count() > 0) return;
-
-        typeRepository.save(UserTypeOption.builder().code("CLC").name("CLC").description("Cử nhân chất lượng cao").build());
-        typeRepository.save(UserTypeOption.builder().code("TN").name("TN").description("Cử nhân tài năng").build());
-        typeRepository.save(UserTypeOption.builder().code("DT").name("DT").description("Đại trà").build());
-
-        log.info("Default user types seeded successfully.");
     }
 }

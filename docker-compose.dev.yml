@@ -204,8 +204,6 @@ services:
       SPRING_JPA_SHOW_SQL: false
       LMS_API_URL: http://lms-backend:8081
       LMS_API_SECRET: ${LMS_SYNC_SECRET}
-      AI_SERVICE_URL: http://ai-service:8000
-      AI_SERVICE_SECRET: ${AI_SERVICE_SECRET:-dev-ai-service-secret}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}

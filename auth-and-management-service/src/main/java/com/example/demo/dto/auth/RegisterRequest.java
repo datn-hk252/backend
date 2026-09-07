@@ -1,7 +1,6 @@
 package com.example.demo.dto.auth;
 
 
-import com.example.demo.enums.UserTeam;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,10 +18,5 @@ public class RegisterRequest {
     private java.util.List<String> roles;
     /** Optional LMS roles independent from auth roles: ADMIN, TEACHER, STUDENT. */
     private java.util.List<String> lmsRoles;
-    private String team;
     private String code;
-    private String type;
-    private String organization;
-    /** Exact organization memberships, preferably addressed by stable slug. */
-    private java.util.List<OrganizationAssignmentRequest> organizations;
 }
