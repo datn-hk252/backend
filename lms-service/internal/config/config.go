@@ -117,9 +117,12 @@ type EmailConfig struct {
 	FromName     string
 }
 
+// AIConfig carries the shared secret that lets a trusted backend call the
+// endpoints guarded by ServiceOrAuthMiddleware. That middleware grants ADMIN
+// on a header match, so an empty secret must stay unmatchable - never give
+// this a default value.
 type AIConfig struct {
-	BaseURL		string
-	Secret		string
+	Secret string
 }
 
 func LoadStorageConfig() StorageConfig {
@@ -238,8 +241,7 @@ func Load() (*Config, error) {
 		},
 
 		AIConf: AIConfig{
-			BaseURL: 	getEnv("AI_SERVICE_URL", "http://ai-service:8000"),
-			Secret: 	getEnv("AI_SERVICE_SECRET", "None"),
+			Secret: getEnv("AI_SERVICE_SECRET", ""),
 		},
 
 		Storage: LoadStorageConfig(),
