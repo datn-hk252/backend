@@ -10,7 +10,6 @@ import com.example.demo.exception.ResourceNotFoundException;
 import com.example.demo.model.User;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.repository.RoleRepository;
-import com.example.demo.repository.OrganizationMemberRepository;
 import com.example.demo.service.email.EmailService;
 import com.example.demo.service.user.PasswordResetService;
 import com.example.demo.service.user.UserService;
@@ -45,7 +44,6 @@ public class UserServiceImpl implements UserService {
     private static final long MAX_PROFILE_PICTURE_BYTES = 1024L * 1024L;
 
     private final UserRepository     userRepository;
-    private final OrganizationMemberRepository organizationMemberRepository;
     private final RoleRepository     roleRepository;
     private final PasswordEncoder    passwordEncoder;
     private final EmailService       emailService;
@@ -55,19 +53,18 @@ public class UserServiceImpl implements UserService {
     @Value("${app.upload.dir:uploads/profiles/}")
     private String uploadDir;
 
-    @Value("${app.default-role:ROLE_USER}")
+    @Value("${app.default-role:ROLE_STUDENT}")
     private String defaultRole;
 
     // Reads
 
     @Override
     public PageResponse<UserResponse> getUsers(
-            int page, int pageSize, String query, String team, String type,
-            String role, String sortBy, String sortDirection) {
+            int page, int pageSize, String query, String role,
+            String sortBy, String sortDirection) {
         int safePage = Math.max(0, page);
         int safePageSize = Math.min(100, Math.max(1, pageSize));
-        Set<String> sortableFields = Set.of(
-                "id", "name", "role", "team", "organization", "totalScore", "active");
+        Set<String> sortableFields = Set.of("id", "name", "role", "code", "active");
         String safeSortBy = sortableFields.contains(sortBy) ? sortBy : "id";
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDirection)
                 ? Sort.Direction.ASC : Sort.Direction.DESC;
@@ -76,25 +73,11 @@ public class UserServiceImpl implements UserService {
         String normalizedQuery = query == null ? "" : query.trim();
         Page<User> userPage = userRepository.searchPage(
                 normalizedQuery,
-                team == null ? "" : team.trim(),
-                type == null ? "" : type.trim(),
                 role == null ? "" : role.trim(),
                 pageable);
 
-        List<Long> userIds = userPage.getContent().stream().map(User::getId).toList();
-        Map<Long, List<String>> organizationsByUser = new HashMap<>();
-        if (!userIds.isEmpty()) {
-            for (var row : organizationMemberRepository.findOrganizationNamesByUserIds(userIds)) {
-                organizationsByUser
-                        .computeIfAbsent(row.getUserId(), ignored -> new ArrayList<>())
-                        .add(row.getOrganizationName());
-            }
-        }
-
         List<UserResponse> items = userPage.getContent().stream()
-                .map(user -> UserResponse.fromEntity(
-                        user,
-                        organizationsByUser.getOrDefault(user.getId(), List.of())))
+                .map(UserResponse::fromEntity)
                 .toList();
 
         return new PageResponse<>(items, safePage, safePageSize,
@@ -123,10 +106,7 @@ public class UserServiceImpl implements UserService {
         var user = findUserEntity(id);
         user.setName(req.getName());
         user.setEmail(req.getEmail());
-        if (req.getTeam() != null)           user.setTeam(req.getTeam());
-        if (req.getType() != null)           user.setType(req.getType());
         if (req.getProfilePicture() != null) user.setProfilePicture(req.getProfilePicture());
-        if (req.getOrganization() != null)   user.setOrganization(req.getOrganization());
         var saved = userRepository.save(user);
         userSyncService.syncUser(saved);
         return UserResponse.fromEntity(saved);
@@ -284,8 +264,8 @@ public class UserServiceImpl implements UserService {
             String url = "/" + cleanDir + "/" + filename;
             user.setProfilePicture(url);
             User saved = userRepository.save(user);
-            // Keep LMS/course and chat projections in sync immediately, so
-            // participant lists can use the uploaded image without extra lookups.
+            // Keep the LMS projection in sync immediately, so participant lists
+            // can use the uploaded image without an extra lookup.
             userSyncService.syncUser(saved);
             return url;
 
@@ -435,16 +415,5 @@ public class UserServiceImpl implements UserService {
             return filename.substring(filename.lastIndexOf('.'));
         }
         return ".jpg";
-    }
-
-    @Override
-    @org.springframework.transaction.annotation.Transactional(readOnly = true)
-    public void syncAllUsersToChat() {
-        var users = userRepository.findAll();
-        userSyncService.syncUsersToChat(users)
-                .exceptionally(ex -> {
-                    log.error("Manual bulk chat sync failed: {}", ex.getMessage());
-                    return null;
-                });
     }
 }

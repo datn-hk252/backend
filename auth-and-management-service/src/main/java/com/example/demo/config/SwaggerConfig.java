@@ -38,7 +38,7 @@ public class SwaggerConfig {
                         .title(appName + " API Documentation")
                         .version("1.0.0")
                         .description("""
-                                API documentation cho Task & Event Management System
+                                API documentation cho dịch vụ xác thực và quản lý người dùng
                                 """)
                         .termsOfService("https://bdc.hpcc.vn/terms")
                         .contact(new Contact()

@@ -12,8 +12,8 @@ import java.util.List;
 public interface UserService {
 
     PageResponse<UserResponse> getUsers(
-            int page, int pageSize, String query, String team, String type,
-            String role, String sortBy, String sortDirection);
+            int page, int pageSize, String query, String role,
+            String sortBy, String sortDirection);
 
     UserResponse getUserById(Long id);
 
@@ -49,7 +49,4 @@ public interface UserService {
 
     /** Reject a pending user: set active=false, pendingApproval=false (blocked). */
     UserResponse rejectUser(Long id);
-
-    /** Manually sync all existing users to the chat service. */
-    void syncAllUsersToChat();
 }

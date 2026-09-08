@@ -39,14 +39,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
         where (:query = '' or lower(u.name) like lower(concat('%', :query, '%'))
                or lower(u.email) like lower(concat('%', :query, '%'))
                or lower(u.code) like lower(concat('%', :query, '%')))
-          and (:team = '' or u.team = :team)
-          and (:type = '' or u.type = :type)
           and (:role = '' or u.role = :role or :role member of u.roles)
         """)
     Page<User> searchPage(
             @Param("query") String query,
-            @Param("team") String team,
-            @Param("type") String type,
             @Param("role") String role,
             Pageable pageable);
 

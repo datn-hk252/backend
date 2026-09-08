@@ -38,13 +38,11 @@ public class UserController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(name = "page_size", defaultValue = "50") int pageSize,
             @RequestParam(defaultValue = "") String query,
-            @RequestParam(defaultValue = "") String team,
-            @RequestParam(defaultValue = "") String type,
             @RequestParam(defaultValue = "") String role,
             @RequestParam(name = "sort_by", defaultValue = "id") String sortBy,
             @RequestParam(name = "sort_dir", defaultValue = "desc") String sortDirection) {
         return ResponseEntity.ok(userService.getUsers(
-                page, pageSize, query, team, type, role, sortBy, sortDirection));
+                page, pageSize, query, role, sortBy, sortDirection));
     }
 
     @GetMapping("/{id}")
@@ -111,12 +109,5 @@ public class UserController {
     @PatchMapping("/{id}/reject")
     public ResponseEntity<UserResponse> rejectUser(@PathVariable Long id) {
         return ResponseEntity.ok(userService.rejectUser(id));
-    }
-
-    @PreAuthorize("hasRole('ADMIN')")
-    @PostMapping("/sync-to-chat")
-    public ResponseEntity<java.util.Map<String, String>> syncToChat() {
-        userService.syncAllUsersToChat();
-        return ResponseEntity.ok(java.util.Map.of("message", "Triggered synchronization of all users to chat service."));
     }
 }

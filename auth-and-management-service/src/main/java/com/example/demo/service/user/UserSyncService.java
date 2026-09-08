@@ -31,13 +31,6 @@ public class UserSyncService {
     @Value("${lms.api.secret}")
     private String lmsApiSecret;
 
-    // ── Chat service ──────────────────────────────────────────────────────────
-    @Value("${chat.api.url:#{null}}")
-    private String chatApiUrl;
-
-    @Value("${chat.api.secret:#{null}}")
-    private String chatApiSecret;
-
     private static final int MAX_RETRIES = 3;
 
     // How long the startup sync waits for lms-service to answer /health.
@@ -48,16 +41,11 @@ public class UserSyncService {
 
     @Async("syncExecutor")
     public CompletableFuture<Void> syncUser(User user) {
-        // Run LMS and Chat syncs in parallel; failures are isolated
-        var lmsFuture = CompletableFuture.runAsync(() ->
+        return CompletableFuture.runAsync(() ->
             withRetry(() -> doPost(lmsApiUrl + "/api/v1/sync/user", buildLmsPayload(user),
                                    lmsApiSecret),
                       "lms-sync user " + user.getEmail())
         ).exceptionally(ex -> { log.error("LMS sync failed for {}: {}", user.getEmail(), ex.getMessage()); return null; });
-
-        var chatFuture = syncUserToChat(user);
-
-        return CompletableFuture.allOf(lmsFuture, chatFuture);
     }
 
     @Async("syncExecutor")
@@ -74,13 +62,8 @@ public class UserSyncService {
                         }))
                 .toArray(CompletableFuture[]::new);
 
-        var chatFuture = syncUsersToChat(users);
-
-        return CompletableFuture.allOf(
-            CompletableFuture.allOf(futures)
-                .thenRun(() -> log.info("LMS bulk sync completed for {} users", users.size())),
-            chatFuture
-        );
+        return CompletableFuture.allOf(futures)
+                .thenRun(() -> log.info("LMS bulk sync completed for {} users", users.size()));
     }
 
     /**
@@ -142,8 +125,7 @@ public class UserSyncService {
 
     @Async("syncExecutor")
     public CompletableFuture<Void> deleteUser(Long userId) {
-        // Delete from both LMS and Chat in parallel
-        var lmsFuture = CompletableFuture.runAsync(() -> {
+        return CompletableFuture.runAsync(() -> {
             try {
                 restTemplate.exchange(
                     lmsApiUrl + "/api/v1/sync/user/" + userId,
@@ -154,57 +136,6 @@ public class UserSyncService {
                 log.info("Deleted user {} from LMS", userId);
             } catch (RestClientException ex) {
                 log.error("Failed to delete user {} from LMS: {}", userId, ex.getMessage());
-            }
-        });
-
-        var chatFuture = CompletableFuture.runAsync(() -> {
-            if (chatApiUrl == null || chatApiUrl.isBlank()) return;
-            try {
-                restTemplate.exchange(
-                    chatApiUrl + "/api/v1/sync/user/" + userId,
-                    HttpMethod.DELETE,
-                    new HttpEntity<>(authHeaders(chatApiSecret)),
-                    Void.class
-                );
-                log.info("Deleted user {} from Chat", userId);
-            } catch (RestClientException ex) {
-                log.warn("Failed to delete user {} from Chat (non-critical): {}", userId, ex.getMessage());
-            }
-        });
-
-        return CompletableFuture.allOf(lmsFuture, chatFuture);
-    }
-
-    // ── Chat-specific sync ────────────────────────────────────────────────────
-
-    private CompletableFuture<Void> syncUserToChat(User user) {
-        if (chatApiUrl == null || chatApiUrl.isBlank()) {
-            return CompletableFuture.completedFuture(null);
-        }
-        return CompletableFuture.runAsync(() -> {
-            try {
-                withRetry(() -> doPost(chatApiUrl + "/api/v1/sync/user", buildChatPayload(user),
-                                       chatApiSecret),
-                          "chat-sync user " + user.getEmail());
-            } catch (Exception ex) {
-                log.warn("Chat sync failed for {} (non-critical): {}", user.getEmail(), ex.getMessage());
-            }
-        });
-    }
-
-    public CompletableFuture<Void> syncUsersToChat(List<User> users) {
-        if (chatApiUrl == null || chatApiUrl.isBlank()) {
-            return CompletableFuture.completedFuture(null);
-        }
-        return CompletableFuture.runAsync(() -> {
-            try {
-                var payloads = users.stream().map(this::buildChatPayload).toList();
-                withRetry(() -> doPost(chatApiUrl + "/api/v1/sync/users/bulk", Map.of("users", payloads),
-                                       chatApiSecret),
-                          "chat-bulk-sync");
-                log.info("Chat bulk sync completed for {} users", users.size());
-            } catch (Exception ex) {
-                log.warn("Chat bulk sync failed (non-critical): {}", ex.getMessage());
             }
         });
     }
@@ -221,18 +152,7 @@ public class UserSyncService {
             "email",     user.getEmail(),
             "full_name", user.getName(),
             "profile_picture", user.getProfilePicture() != null ? user.getProfilePicture() : "",
-            "roles",     lmsRoles,
-            "org",       user.getOrganization() != null ? user.getOrganization() : ""
-        );
-    }
-
-    /** Payload for Chat service - uses "id" key, profile_picture field */
-    private Map<String, Object> buildChatPayload(User user) {
-        return Map.of(
-            "id",              user.getId(),
-            "email",           user.getEmail(),
-            "full_name",       user.getName() != null ? user.getName() : "",
-            "profile_picture", user.getProfilePicture() != null ? user.getProfilePicture() : ""
+            "roles",     lmsRoles
         );
     }
 
