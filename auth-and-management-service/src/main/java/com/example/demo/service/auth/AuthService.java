@@ -38,7 +38,7 @@ public class AuthService {
     private final UserSyncService userSyncService;
     private final RoleResolutionStrategy roleStrategy;
 
-    @Value("${app.default-role:ROLE_USER}")
+    @Value("${app.default-role:ROLE_STUDENT}")
     private String defaultRole;
 
     public User authenticate(LoginRequest request) {

@@ -239,9 +239,13 @@ func normalizeRole(role string) string {
 	switch role {
 	case "ROLE_ADMIN":
 		return "ADMIN"
-	case "ROLE_MANAGER":
-		return "ADMIN"
-	case "ROLE_USER":
+	case "ROLE_TEACHER", "ROLE_MANAGER":
+		// ROLE_MANAGER is the pre-rename name of ROLE_TEACHER. It used to map to
+		// ADMIN, which handed a teacher administrator rights on any token that
+		// reached here un-normalized.
+		return "TEACHER"
+	case "ROLE_STUDENT", "ROLE_USER":
+		// ROLE_USER is the pre-rename name of ROLE_STUDENT.
 		return "STUDENT"
 	default:
 		return strings.ToUpper(role) // Pass-through for dynamic roles

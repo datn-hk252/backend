@@ -29,7 +29,7 @@ public final class TestDataFactory {
                 .name("Manager User")
                 .email("manager@test.com")
                 .password("$2a$10$encoded_password")
-                .role(UserRole.ROLE_MANAGER)
+                .role(UserRole.ROLE_TEACHER)
                 .code("MGR001")
                 .active(true)
                 .build();
@@ -41,7 +41,7 @@ public final class TestDataFactory {
                 .name("Regular User")
                 .email("user@test.com")
                 .password("$2a$10$encoded_password")
-                .role(UserRole.ROLE_USER)
+                .role(UserRole.ROLE_STUDENT)
                 .code("USR001")
                 .active(true)
                 .build();
@@ -62,7 +62,7 @@ public final class TestDataFactory {
         return RegisterRequest.builder()
                 .name("New Member")
                 .email(email)
-                .role(UserRole.ROLE_USER)
+                .role(UserRole.ROLE_STUDENT)
                 .code(code)
                 .build();
     }

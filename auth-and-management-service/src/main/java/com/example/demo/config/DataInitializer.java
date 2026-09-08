@@ -44,6 +44,7 @@ public class DataInitializer implements CommandLineRunner {
         } catch (Exception e) {
             log.error("Failed to drop check constraints: {}", e.getMessage());
         }
+        renameLegacyRoles();
         seedRoles();
         seedAdminUser();
 
@@ -59,13 +60,58 @@ public class DataInitializer implements CommandLineRunner {
     }
 
     /**
+     * Move the club-era role names onto the ones an English centre uses.
+     *
+     * <p>A role name is a value in three places - the roles table, users.role and
+     * the user_roles collection table - so changing the constants alone would
+     * leave existing accounts pointing at roles nobody seeds any more. Runs
+     * before {@link #seedRoles()} so seeding finds the renamed rows instead of
+     * inserting duplicates. No-op once there is nothing left to rename.
+     *
+     * <p>Each lms_role_mappings row follows automatically: it references its role
+     * by id, not by name.
+     */
+    private void renameLegacyRoles() {
+        renameRole(UserRole.LEGACY_ROLE_MANAGER, UserRole.ROLE_TEACHER);
+        renameRole(UserRole.LEGACY_ROLE_USER, UserRole.ROLE_STUDENT);
+    }
+
+    private void renameRole(String from, String to) {
+        try {
+            // A user holding both names would break the (user_id, role_name)
+            // unique constraint on update, so drop the redundant one first.
+            jdbcTemplate.update(
+                    "DELETE FROM user_roles ur WHERE ur.role_name = ?"
+                    + " AND EXISTS (SELECT 1 FROM user_roles other"
+                    + "             WHERE other.user_id = ur.user_id AND other.role_name = ?)",
+                    from, to);
+
+            int roles = jdbcTemplate.update(
+                    "UPDATE roles SET name = ? WHERE name = ?"
+                    + " AND NOT EXISTS (SELECT 1 FROM roles existing WHERE existing.name = ?)",
+                    to, from, to);
+            int users = jdbcTemplate.update(
+                    "UPDATE users SET role = ? WHERE role = ?", to, from);
+            int grants = jdbcTemplate.update(
+                    "UPDATE user_roles SET role_name = ? WHERE role_name = ?", to, from);
+
+            if (roles + users + grants > 0) {
+                log.info("Renamed {} to {}: {} role row(s), {} user(s), {} grant(s)",
+                         from, to, roles, users, grants);
+            }
+        } catch (Exception e) {
+            log.error("Failed to rename {} to {}: {}", from, to, e.getMessage());
+        }
+    }
+
+    /**
      * Seed the dynamic roles table and default LMS mappings.
      * Idempotent - skips if roles already exist.
      */
     private void seedRoles() {
         seedRole(UserRole.ROLE_ADMIN, "Quản trị viên", "ADMIN", "Administrator");
-        seedRole(UserRole.ROLE_MANAGER, "Giáo viên", "TEACHER", "Manager");
-        seedRole(UserRole.ROLE_USER, "Học viên", "STUDENT", "Member");
+        seedRole(UserRole.ROLE_TEACHER, "Giáo viên", "TEACHER", "Manager");
+        seedRole(UserRole.ROLE_STUDENT, "Học viên", "STUDENT", "Member");
         log.debug("Role seeding complete");
     }
 

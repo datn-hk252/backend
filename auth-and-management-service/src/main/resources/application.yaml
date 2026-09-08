@@ -139,7 +139,7 @@ file:
   upload-dir: uploads
 
 app:
-  default-role: ROLE_USER
+  default-role: ROLE_STUDENT
   upload:
     dir: uploads/profiles/
   name: BDC System

@@ -1,6 +1,7 @@
 package com.example.demo.controller;
 
 import com.example.demo.dto.auth.*;
+import com.example.demo.dto.user.UserResponse;
 import com.example.demo.model.User;
 import com.example.demo.service.auth.AuthService;
 import com.example.demo.service.auth.GoogleAuthService;
@@ -87,8 +88,11 @@ public class AuthController {
 
     @PostMapping("/register/bulk")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<List<User>> bulkRegister(@RequestBody BulkRegisterRequest req) {
-        return ResponseEntity.ok(authService.bulkRegister(req));
+    public ResponseEntity<List<UserResponse>> bulkRegister(@RequestBody BulkRegisterRequest req) {
+        // The rest of the API answers with UserResponse; returning the entity here
+        // was the one path that still put the raw columns on the wire.
+        return ResponseEntity.ok(
+                authService.bulkRegister(req).stream().map(UserResponse::fromEntity).toList());
     }
 
     @PostMapping("/request-password-change")

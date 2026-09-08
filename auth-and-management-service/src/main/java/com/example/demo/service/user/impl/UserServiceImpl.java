@@ -53,7 +53,7 @@ public class UserServiceImpl implements UserService {
     @Value("${app.upload.dir:uploads/profiles/}")
     private String uploadDir;
 
-    @Value("${app.default-role:ROLE_USER}")
+    @Value("${app.default-role:ROLE_STUDENT}")
     private String defaultRole;
 
     // Reads

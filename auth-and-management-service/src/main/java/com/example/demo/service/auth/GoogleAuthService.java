@@ -44,7 +44,7 @@ public class GoogleAuthService {
     @Value("${google.client-id}")
     private String googleClientId;
 
-    @Value("${app.default-role:ROLE_USER}")
+    @Value("${app.default-role:ROLE_STUDENT}")
     private String defaultRole;
 
     private GoogleIdTokenVerifier verifier;
@@ -141,8 +141,9 @@ public class GoogleAuthService {
 
         String resolvedRole = defaultRole;
         if (!roleRepository.existsByName(resolvedRole)) {
-            log.warn("Default role '{}' not found in database! Creating user with fallback 'ROLE_USER'", resolvedRole);
-            resolvedRole = "ROLE_USER";
+            log.warn("Default role '{}' not found in database! Falling back to {}",
+                     resolvedRole, UserRole.ROLE_STUDENT);
+            resolvedRole = UserRole.ROLE_STUDENT;
         }
 
         User user = User.builder()

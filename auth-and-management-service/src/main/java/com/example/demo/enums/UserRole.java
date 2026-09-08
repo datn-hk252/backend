@@ -9,8 +9,12 @@ package com.example.demo.enums;
  */
 public final class UserRole {
     public static final String ROLE_ADMIN   = "ROLE_ADMIN";
-    public static final String ROLE_MANAGER = "ROLE_MANAGER";
-    public static final String ROLE_USER    = "ROLE_USER";
+    public static final String ROLE_TEACHER = "ROLE_TEACHER";
+    public static final String ROLE_STUDENT = "ROLE_STUDENT";
+
+    /** Club-era names these two replaced; DataInitializer renames what is stored. */
+    public static final String LEGACY_ROLE_MANAGER = "ROLE_MANAGER";
+    public static final String LEGACY_ROLE_USER    = "ROLE_USER";
 
     private UserRole() {}
 }
