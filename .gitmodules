@@ -2,11 +2,11 @@
 	path = frontend
 	url = https://github.com/datn-hk252/frontend.git
 [submodule "da-analytics"]
-	path = da-analytics
+	path = _parked/da-analytics
 	url = git@github.com:Big-Data-Club/DA-RecommenderSystem.git
 [submodule "ai-service/mcp_skillset"]
-	path = ai-service/mcp_skillset
+	path = _parked/ai-service/mcp_skillset
 	url = https://github.com/Big-Data-Club/BDCHub--MCP_SkillSet.git
 [submodule "data-warehouse"]
-	path = data-warehouse
+	path = _parked/data-warehouse
 	url = https://github.com/Big-Data-Club/BDCHub---DataWarehouse.git
