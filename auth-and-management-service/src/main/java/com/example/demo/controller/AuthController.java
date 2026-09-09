@@ -7,6 +7,9 @@ import com.example.demo.service.auth.AuthService;
 import com.example.demo.service.auth.GoogleAuthService;
 import com.example.demo.service.user.UserService;
 
+import com.example.demo.utils.ClientIp;
+
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -33,8 +36,8 @@ public class AuthController {
     private long refreshExpirationMs;
 
     @PostMapping("/login")
-    public ResponseEntity<?> login(@RequestBody LoginRequest req) {
-        User user  = authService.authenticate(req);
+    public ResponseEntity<?> login(@RequestBody LoginRequest req, HttpServletRequest http) {
+        User user  = authService.authenticate(req, ClientIp.of(http));
         String at  = authService.generateToken(user);
         String rt  = authService.generateRefreshToken(user);
 

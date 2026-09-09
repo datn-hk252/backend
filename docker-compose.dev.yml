@@ -204,6 +204,9 @@ services:
       SPRING_JPA_SHOW_SQL: false
       LMS_API_URL: http://lms-backend:8081
       LMS_API_SECRET: ${LMS_SYNC_SECRET}
+      REDIS_HOST: redis-lms
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-3600000}
@@ -223,6 +226,8 @@ services:
       - upload_data:/app/uploads
     depends_on:
       postgres:
+        condition: service_healthy
+      redis-lms:
         condition: service_healthy
     networks: [app-network]
     healthcheck:
