@@ -116,13 +116,13 @@ func (h *UserSyncHandler) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	if err := h.syncService.DeleteUser(c.Request.Context(), userID); err != nil {
+	if err := h.syncService.RevokeUserAccess(c.Request.Context(), userID); err != nil {
 		logger.Error("Failed to delete user from LMS", err)
 		c.JSON(http.StatusInternalServerError, dto.NewErrorResponse("delete_failed", err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, dto.NewMessageResponse("User deleted from LMS"))
+	c.JSON(http.StatusOK, dto.NewMessageResponse("Revoked LMS access for user"))
 }
 
 // SyncOrganization godoc

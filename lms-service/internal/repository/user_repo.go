@@ -186,11 +186,66 @@ func (r *UserRepository) HasRole(ctx context.Context, userID int64, role string)
 	return exists, nil
 }
 
-// ClearUserRoles removes all roles from a user
-func (r *UserRepository) ClearUserRoles(ctx context.Context, userID int64) error {
-	query := `DELETE FROM user_roles WHERE user_id = $1`
-	_, err := r.db.ExecContext(ctx, query, userID)
-	return err
+// RevokeAccess records that someone has left the centre.
+//
+// The user row itself stays. Twenty-six foreign keys point at lms_db.users and
+// ten of them are NO ACTION, so deleting a teacher who ever authored material
+// would fail at the database anyway - but the real reason is that their name
+// has to survive on the material they wrote, and this mirror is the only place
+// it still exists once the auth service has hard-deleted its own copy.
+//
+// Leaving the centre has to mean leaving every class, or the rosters go on
+// counting a person who is gone and their enrolments go on granting material
+// nobody can revoke. All four steps therefore share one transaction: half of
+// this applied is worse than none of it.
+//
+// Re-running is harmless. deleted_at keeps the first departure date, and the
+// roster update only touches rows that are still active.
+func (r *UserRepository) RevokeAccess(ctx context.Context, userID int64) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM user_roles WHERE user_id = $1`, userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE users SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
+		userID); err != nil {
+		return err
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE class_students
+		SET status = 'DROPPED', left_at = NOW()
+		WHERE student_id = $1 AND status = 'ACTIVE'
+	`, userID); err != nil {
+		return err
+	}
+
+	// Same rule syncCourseAccess applies one course at a time, written once for
+	// every course this person held: an enrolment survives only while an active
+	// roster row still backs it.
+	if _, err := tx.ExecContext(ctx, `
+		DELETE FROM enrollments e
+		WHERE e.student_id = $1
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM class_students cs
+		      JOIN classes c ON c.id = cs.class_id
+		      WHERE cs.student_id = e.student_id
+		        AND c.course_id  = e.course_id
+		        AND cs.status    = 'ACTIVE'
+		  )
+	`, userID); err != nil {
+		return err
+	}
+
+	return tx.Commit()
 }
 
 // ClearSyncedRoles removes only roles with source='sync', preserving manual overrides.
@@ -297,13 +352,18 @@ func (r *UserRepository) AssociateUserWithOrganization(ctx context.Context, user
 	return err
 }
 
-// SearchTeachers searches for users with TEACHER role by name or email
+// SearchTeachers searches for users with TEACHER role by name or email.
+//
+// This one is a picker, so it filters out people who have left - unlike the
+// joins that read a name off historical rows, which must keep showing a
+// departed teacher as the author of what they wrote.
 func (r *UserRepository) SearchTeachers(ctx context.Context, queryStr string) ([]*models.User, error) {
 	query := `
 		SELECT u.id, u.email, u.full_name, COALESCE(u.organization, ''), u.created_at, u.updated_at
 		FROM users u
 		JOIN user_roles ur ON u.id = ur.user_id
 		WHERE ur.role = 'TEACHER'
+		  AND u.deleted_at IS NULL
 		  AND (u.email ILIKE $1 OR u.full_name ILIKE $1)
 		ORDER BY u.full_name ASC
 		LIMIT 10

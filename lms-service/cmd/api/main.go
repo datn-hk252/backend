@@ -117,6 +117,7 @@ func main() {
 	progressRepo := repository.NewProgressRepository(db)
 	analyticsRepo := repository.NewAnalyticsRepository(db)
 	skillAnalyticsRepo := repository.NewSkillAnalyticsRepository(db)
+	classRepo := repository.NewClassRepository(db)
 	roleDefRepo := repository.NewRoleDefinitionRepository(db)
 	permRepo := repository.NewPermissionRepository(db)
 	orgRepo := repository.NewOrganizationRepository(db)
@@ -215,6 +216,7 @@ func main() {
 	orgService := service.NewOrganizationService(orgRepo, userRepo, redisClient)
 	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, orgRepo, redisClient, aiClient)
 	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, orgRepo, redisClient)
+	classService := service.NewClassService(classRepo)
 	bankRepo := repository.NewQuestionBankRepository(db)
 	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo, progressRepo, aiClient, bankRepo)
 	bankService := service.NewQuestionBankService(bankRepo, quizRepo, courseRepo, aiClient)
@@ -240,6 +242,7 @@ func main() {
 	courseHandler := handler.NewCourseHandler(courseService)
 	coTeacherHandler := handler.NewCoTeacherHandler(courseService)
 	enrollmentHandler := handler.NewEnrollmentHandler(enrollmentService)
+	classHandler := handler.NewClassHandler(classService)
 	fileHandler := handler.NewFileHandler(storageProvider, cfg.Upload)
 	syncHandler := handler.NewUserSyncHandler(userSyncService, syncSecret)
 	quizHandler := handler.NewQuizHandler(quizService, storageProvider)
@@ -506,7 +509,9 @@ func main() {
 
 				// Course learners management
 				courses.GET("/:courseId/learners", enrollmentHandler.GetCourseLearners)
-				courses.POST("/:courseId/bulk-enroll", enrollmentHandler.BulkEnroll)
+				// Bulk enrolment moved to POST /classes/:classId/students/bulk:
+				// placing learners on a course without saying which class they
+				// join would put rows in enrollments that no roster explains.
 
 				// -- Analytics (Student) -----------------------------------
 				courses.GET("/:courseId/my-quiz-scores", analyticsHandler.GetMyQuizScores)
@@ -530,19 +535,38 @@ func main() {
 
 			}
 
+			// CLASS MANAGEMENT (FR-CLS-01..04)
+			// Every write belongs to the admin: a centre places its learners
+			// rather than letting them enrol themselves. Teachers read, and the
+			// service narrows the list to the classes they run.
+			classes := auth.Group("/classes")
+			{
+				classes.GET("", middleware.RequireRoles("TEACHER", "ADMIN"), classHandler.ListClasses)
+				classes.GET("/:classId", middleware.RequireRoles("TEACHER", "ADMIN"), classHandler.GetClass)
+
+				classes.POST("", middleware.RequireRoles("ADMIN"), classHandler.CreateClass)
+				classes.PUT("/:classId", middleware.RequireRoles("ADMIN"), classHandler.UpdateClass)
+				classes.DELETE("/:classId", middleware.RequireRoles("ADMIN"), classHandler.DeleteClass)
+
+				classes.POST("/:classId/students", middleware.RequireRoles("ADMIN"), classHandler.AddStudent)
+				classes.POST("/:classId/students/bulk", middleware.RequireRoles("ADMIN"), classHandler.AddStudents)
+				classes.DELETE("/:classId/students/:studentId", middleware.RequireRoles("ADMIN"), classHandler.RemoveStudent)
+				classes.PUT("/:classId/students/:studentId/status", middleware.RequireRoles("ADMIN"), classHandler.SetStudentStatus)
+			}
+
 			// ENROLLMENT MANAGEMENT (Internal Service Secret OR JWT)
+			//
+			// Enrolment is now a projection of class membership, written by
+			// ClassRepository inside the same transaction as the roster. The
+			// self-service routes that let a learner pick their own courses
+			// belong to the catalogue model this fork came from, not to a
+			// centre that places its students, so they are gone; what remains
+			// is the read a student needs to see their own courses.
 			enrollments := v1.Group("/enrollments")
 			enrollments.Use(middleware.ServiceOrAuthMiddleware(cfg.JWT.Secret, cfg.AIConf.Secret))
 			enrollments.Use(middleware.LoadLocalRoles(userRepo, redisClient))
 			{
-				// Student enrollment
-				enrollments.POST("", enrollmentHandler.EnrollCourse)
 				enrollments.GET("/my", enrollmentHandler.GetMyEnrollments)
-				enrollments.DELETE("/:enrollmentId", enrollmentHandler.CancelEnrollment)
-
-				// Teacher approval/rejection
-				enrollments.PUT("/:enrollmentId/accept", enrollmentHandler.AcceptEnrollment)
-				enrollments.PUT("/:enrollmentId/reject", enrollmentHandler.RejectEnrollment)
 			}
 
 			quizzes := auth.Group("/quizzes")
