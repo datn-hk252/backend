@@ -17,7 +17,14 @@ public interface EmailService {
 
     CompletableFuture<Void> sendWelcomeEmailAsync(String to, String name, String tempPassword);
 
-    CompletableFuture<Void> sendWelcomeBatch(Map<String, String> emailToPassword, Map<String, String> emailToName);
+    /**
+     * Sends every welcome mail in the batch and reports which addresses failed.
+     *
+     * One bad address must not stop the rest, so failures are collected rather
+     * than thrown - but they are returned, because an account whose password
+     * never arrived cannot be signed in to and the password is not recoverable.
+     */
+    CompletableFuture<java.util.List<String>> sendWelcomeBatch(Map<String, String> emailToPassword, Map<String, String> emailToName);
 
     CompletableFuture<Void> sendPasswordChangeConfirmationAsync(String to, String name, String token);
 

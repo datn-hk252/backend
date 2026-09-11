@@ -77,6 +77,23 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.NOT_FOUND, ex.getMessage());
     }
 
+    /**
+     * A @PreAuthorize rule that says no.
+     *
+     * Without this the catch-all below turns every denial into a 500, so the
+     * caller cannot tell "you may not do that" from "the server broke" - and a
+     * working permission check looks like an outage.
+     *
+     * AuthorizationDeniedException extends AccessDeniedException, so one
+     * handler covers both the method-security and the filter-chain flavours.
+     */
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ErrorResponse> handleAccessDenied(
+            org.springframework.security.access.AccessDeniedException ex) {
+        log.warn("Access denied: {}", ex.getMessage());
+        return error(HttpStatus.FORBIDDEN, "Bạn không có quyền thực hiện thao tác này");
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGeneric(Exception ex) {
         log.error("Unhandled exception: {}", ex.getMessage(), ex);

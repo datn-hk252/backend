@@ -91,11 +91,14 @@ public class AuthController {
 
     @PostMapping("/register/bulk")
     @PreAuthorize("hasAuthority('ROLE_ADMIN')")
-    public ResponseEntity<List<UserResponse>> bulkRegister(@RequestBody BulkRegisterRequest req) {
+    public ResponseEntity<BulkRegisterResponse> bulkRegister(@RequestBody BulkRegisterRequest req) {
         // The rest of the API answers with UserResponse; returning the entity here
         // was the one path that still put the raw columns on the wire.
-        return ResponseEntity.ok(
-                authService.bulkRegister(req).stream().map(UserResponse::fromEntity).toList());
+        var result = authService.bulkRegister(req);
+        return ResponseEntity.ok(new BulkRegisterResponse(
+                result.users().stream().map(UserResponse::fromEntity).toList(),
+                result.emailFailures(),
+                result.emailPending()));
     }
 
     @PostMapping("/request-password-change")

@@ -81,6 +81,7 @@ const (
 const (
 	ContentTypeText         = "TEXT"
 	ContentTypeVideo        = "VIDEO"
+	ContentTypeAudio        = "AUDIO"
 	ContentTypeDocument     = "DOCUMENT"
 	ContentTypeImage        = "IMAGE"
 	ContentTypeQuiz         = "QUIZ"

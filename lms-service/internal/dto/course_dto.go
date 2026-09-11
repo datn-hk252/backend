@@ -77,7 +77,11 @@ type SectionResponse struct {
 
 // CreateContentRequest represents the request to create section content
 type CreateContentRequest struct {
-	Type        string `json:"type" binding:"required,oneof=TEXT VIDEO DOCUMENT IMAGE QUIZ FORUM ANNOUNCEMENT"`
+	// Adding a content type means changing this list in three places at once:
+	// here, models.ContentType* below it, and the CHECK constraint on
+	// section_content.type. Miss one and the failure lands somewhere else
+	// entirely - the compiler sees none of them.
+	Type        string `json:"type" binding:"required,oneof=TEXT VIDEO AUDIO DOCUMENT IMAGE QUIZ FORUM ANNOUNCEMENT"`
 	Title       string `json:"title" binding:"required,min=3,max=255"`
 	Description string `json:"description" binding:"max=2000"`
 	// Zero is a valid first position. `required` rejects Go's zero value, which
