@@ -9,8 +9,7 @@ type CreateCourseRequest struct {
 	Category     string `json:"category" binding:"max=100"`
 	Level        string `json:"level" binding:"omitempty,oneof=BEGINNER INTERMEDIATE ADVANCED ALL_LEVELS"`
 	ThumbnailURL string `json:"thumbnail_url" binding:"omitempty,max=500"`
-	OrgID        int64  `json:"org_id" binding:"omitempty"`
-	Visibility   string `json:"visibility" binding:"omitempty,oneof=PUBLIC ORG_ONLY"`
+	Visibility   string `json:"visibility" binding:"omitempty,oneof=PUBLIC"`
 }
 
 // UpdateCourseRequest represents the request to update a course
@@ -20,8 +19,7 @@ type UpdateCourseRequest struct {
 	Category     *string `json:"category" binding:"omitempty,max=100"`
 	Level        *string `json:"level" binding:"omitempty,oneof=BEGINNER INTERMEDIATE ADVANCED ALL_LEVELS"`
 	ThumbnailURL *string `json:"thumbnail_url" binding:"omitempty,max=500"`
-	OrgID        *int64  `json:"org_id" binding:"omitempty"`
-	Visibility   *string `json:"visibility" binding:"omitempty,oneof=PUBLIC ORG_ONLY"`
+	Visibility   *string `json:"visibility" binding:"omitempty,oneof=PUBLIC"`
 }
 
 // DeleteCourseRequest optionally records a reason for course-deletion audit
@@ -47,7 +45,6 @@ type CourseResponse struct {
 	UpdatedAt       time.Time  `json:"updated_at"`
 	PublishedAt     *time.Time `json:"published_at,omitempty"`
 	EnrollmentCount int        `json:"enrollment_count"`
-	OrgID           int64      `json:"org_id"`
 	Visibility      string     `json:"visibility"`
 }
 

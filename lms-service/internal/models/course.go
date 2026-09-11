@@ -18,7 +18,6 @@ type Course struct {
 	CreatedAt    time.Time      `json:"created_at" db:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at" db:"updated_at"`
 	PublishedAt  sql.NullTime   `json:"published_at" db:"published_at"`
-	OrgID        int64          `json:"org_id" db:"org_id"`
 	Visibility   string         `json:"visibility" db:"visibility"`
 }
 
@@ -105,3 +104,9 @@ type CourseCoTeacherWithUser struct {
 	Email    string `json:"email" db:"email"`
 	AvatarURL string `json:"avatar_url" db:"avatar_url"`
 }
+
+// Course visibility. Only one value survives: the organisation-scoped
+// alternative went with the organisations themselves, and a single centre
+// has nobody to hide a course from. Kept as a named constant so the column
+// still reads as a deliberate choice rather than a magic string.
+const VisibilityPublic = "PUBLIC"

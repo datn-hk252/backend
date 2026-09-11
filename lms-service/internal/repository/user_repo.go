@@ -326,32 +326,6 @@ func (r *UserRepository) UpdateOrganization(ctx context.Context, userID int64, o
 	return nil
 }
 
-// AssociateUserWithOrganization checks if organization exists by name or slug, and adds user as MEMBER
-func (r *UserRepository) AssociateUserWithOrganization(ctx context.Context, userID int64, orgNameOrSlug string) error {
-	if orgNameOrSlug == "" {
-		return nil
-	}
-	// 1. Find organization id by name or slug
-	var orgID int64
-	queryFind := `SELECT id FROM organizations WHERE name = $1 OR slug = $2`
-	err := r.db.QueryRowContext(ctx, queryFind, orgNameOrSlug, orgNameOrSlug).Scan(&orgID)
-	if err == sql.ErrNoRows {
-		// If org doesn't exist, we don't do anything (silent ignore)
-		return nil
-	} else if err != nil {
-		return err
-	}
-
-	// 2. Insert into organization_members
-	queryInsert := `
-		INSERT INTO organization_members (org_id, user_id, org_role)
-		VALUES ($1, $2, 'MEMBER')
-		ON CONFLICT (org_id, user_id) DO NOTHING
-	`
-	_, err = r.db.ExecContext(ctx, queryInsert, orgID, userID)
-	return err
-}
-
 // SearchTeachers searches for users with TEACHER role by name or email.
 //
 // This one is a picker, so it filters out people who have left - unlike the
