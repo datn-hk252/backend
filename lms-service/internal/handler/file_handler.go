@@ -487,6 +487,7 @@ func cleanFilename(filename string) string {
 func detectFileTypeFromExt(ext string) string {
 	imageExts := []string{".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp"}
 	videoExts := []string{".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v"}
+	audioExts := []string{".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".flac", ".wma"}
 
 	for _, e := range imageExts {
 		if ext == e {
@@ -498,6 +499,11 @@ func detectFileTypeFromExt(ext string) string {
 			return "video"
 		}
 	}
+	for _, e := range audioExts {
+		if ext == e {
+			return "audio"
+		}
+	}
 	return "document"
 }
 
@@ -506,7 +512,7 @@ func isValidFileType(fileType, filename string) bool {
 	// code, notebooks, datasets, cluster scripts or a specialist binary. The
 	// safety boundary is filename/path sanitisation and forced download for
 	// unrenderable formats, not an ever-growing extension allow-list.
-	if fileType != "document" && fileType != "video" && fileType != "image" {
+	if fileType != "document" && fileType != "video" && fileType != "image" && fileType != "audio" {
 		return false
 	}
 	return strings.TrimSpace(filepath.Base(filename)) != ""
@@ -520,6 +526,12 @@ func getContentType(filename string) string {
 		".mp4": "video/mp4", ".webm": "video/webm", ".avi": "video/x-msvideo",
 		".mov": "video/quicktime", ".mkv": "video/x-matroska",
 		".m4v": "video/x-m4v", ".flv": "video/x-flv", ".wmv": "video/x-ms-wmv",
+		// Listening material. The browser needs the right type to play these
+		// inline; served as octet-stream an <audio> element just shows a
+		// broken control.
+		".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
+		".aac": "audio/aac", ".ogg": "audio/ogg", ".oga": "audio/ogg",
+		".flac": "audio/flac", ".wma": "audio/x-ms-wma",
 		".pdf":  "application/pdf",
 		".doc":  "application/msword",
 		".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",

@@ -196,6 +196,15 @@ func (s *ClassService) RemoveStudent(ctx context.Context, classID, studentID int
 	return err
 }
 
+// SetStudentStatus records that a learner left this class, or came back to it.
+func (s *ClassService) SetStudentStatus(ctx context.Context, classID, studentID int64, status string) error {
+	err := s.classRepo.SetStudentStatus(ctx, classID, studentID, status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return errors.New("student is not in this class")
+	}
+	return err
+}
+
 // assertMayRead lets an admin see any class and a teacher see the ones they run.
 func (s *ClassService) assertMayRead(class *dto.ClassResponse, actorID int64, role string) error {
 	if role == "ADMIN" {

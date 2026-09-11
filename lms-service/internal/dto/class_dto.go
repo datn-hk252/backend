@@ -61,10 +61,18 @@ type ClassResponse struct {
 
 // ClassStudentResponse is one row of a roster. FR-CLS-04.
 type ClassStudentResponse struct {
-	StudentID int64     `json:"student_id"`
-	FullName  string    `json:"full_name"`
-	Email     string    `json:"email"`
-	JoinedAt  time.Time `json:"joined_at"`
+	StudentID int64      `json:"student_id"`
+	FullName  string     `json:"full_name"`
+	Email     string     `json:"email"`
+	JoinedAt  time.Time  `json:"joined_at"`
+	Status    string     `json:"status"`
+	LeftAt    *time.Time `json:"left_at,omitempty"`
+}
+
+// SetStudentStatusRequest marks a learner as still attending, or as having left
+// this class part-way through.
+type SetStudentStatusRequest struct {
+	Status string `json:"status" binding:"required,oneof=ACTIVE DROPPED"`
 }
 
 // ClassDetailResponse is a class together with its roster.

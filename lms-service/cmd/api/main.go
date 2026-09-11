@@ -551,6 +551,7 @@ func main() {
 				classes.POST("/:classId/students", middleware.RequireRoles("ADMIN"), classHandler.AddStudent)
 				classes.POST("/:classId/students/bulk", middleware.RequireRoles("ADMIN"), classHandler.AddStudents)
 				classes.DELETE("/:classId/students/:studentId", middleware.RequireRoles("ADMIN"), classHandler.RemoveStudent)
+				classes.PUT("/:classId/students/:studentId/status", middleware.RequireRoles("ADMIN"), classHandler.SetStudentStatus)
 			}
 
 			// ENROLLMENT MANAGEMENT (Internal Service Secret OR JWT)

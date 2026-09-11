@@ -265,3 +265,40 @@ func (h *ClassHandler) RemoveStudent(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, dto.NewMessageResponse("Đã gỡ học viên khỏi lớp"))
 }
+
+// SetStudentStatus godoc
+// @Summary Mark a learner as still attending this class, or as having left it
+// @Tags classes
+// @Param classId path int true "Class ID"
+// @Param studentId path int true "Student ID"
+// @Param request body dto.SetStudentStatusRequest true "New status"
+// @Success 200 {object} dto.MessageResponse
+// @Router /classes/{classId}/students/{studentId}/status [put]
+func (h *ClassHandler) SetStudentStatus(c *gin.Context) {
+	classID, ok := classIDParam(c)
+	if !ok {
+		return
+	}
+	studentID, err := strconv.ParseInt(c.Param("studentId"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_student_id", "Invalid student ID"))
+		return
+	}
+
+	var req dto.SetStudentStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("validation_error", err.Error()))
+		return
+	}
+
+	if err := h.classService.SetStudentStatus(c.Request.Context(), classID, studentID, req.Status); err != nil {
+		respondClassError(c, err, "Failed to update student status")
+		return
+	}
+
+	if req.Status == "DROPPED" {
+		c.JSON(http.StatusOK, dto.NewMessageResponse("Đã đánh dấu học viên nghỉ lớp"))
+		return
+	}
+	c.JSON(http.StatusOK, dto.NewMessageResponse("Đã đánh dấu học viên học lại"))
+}

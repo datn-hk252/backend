@@ -151,16 +151,21 @@ func (s *UserSyncService) BulkSyncUsers(ctx context.Context, req *dto.BulkUserSy
 	return response, nil
 }
 
-// DeleteUser removes user from LMS
-func (s *UserSyncService) DeleteUser(ctx context.Context, userID int64) error {
-	if err := s.userRepo.ClearUserRoles(ctx, userID); err != nil {
-		return fmt.Errorf("failed to clear user roles: %w", err)
+// RevokeUserAccess is what the auth service's delete reaches over here.
+//
+// It does not remove the person. The auth service hard-deletes its own record,
+// which is what actually stops them logging in; this side keeps the row so the
+// courses, quizzes and grades they left behind still name their author, and
+// marks it deleted so the pickers stop offering them.
+func (s *UserSyncService) RevokeUserAccess(ctx context.Context, userID int64) error {
+	if err := s.userRepo.RevokeAccess(ctx, userID); err != nil {
+		return fmt.Errorf("failed to revoke LMS access: %w", err)
 	}
 
 	if s.cache != nil {
 		cache.Invalidate(ctx, s.cache, cache.KeyUserRoles(userID))
 	}
-	logger.Info(fmt.Sprintf("Removed all roles from user %d", userID))
+	logger.Info(fmt.Sprintf("Revoked LMS access for user %d", userID))
 
 	return nil
 }
