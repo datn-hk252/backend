@@ -2,6 +2,18 @@
 spring:
   application:
     name: Club
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2s
+      connect-timeout: 2s
+      # Only StringRedisTemplate is used here; without this the repository
+      # scanner inspects every JPA repository and logs a warning for each.
+      repositories:
+        enabled: false
+
   mail:
     host: smtp.gmail.com
     port: 587
@@ -147,6 +159,17 @@ app:
   admin:
     email: ${ADMIN_EMAIL}
     password: ${ADMIN_PASSWORD}
+
+# NFR-SEC-05 and NFR-SEC-06. Both fail open when Redis is unreachable: locking
+# the whole centre out of the platform is a worse outcome than briefly losing a
+# throttle, and lms-service already made the same call.
+security:
+  login-lockout:
+    max-attempts: ${LOGIN_MAX_ATTEMPTS:5}
+    lockout-minutes: ${LOGIN_LOCKOUT_MINUTES:15}
+  rate-limit:
+    per-account-per-minute: ${RATE_LIMIT_ACCOUNT:100}
+    per-ip-per-minute: ${RATE_LIMIT_IP:300}
 
 cors:
   allowed-origins:

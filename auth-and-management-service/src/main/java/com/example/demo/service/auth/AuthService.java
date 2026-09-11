@@ -37,25 +37,39 @@ public class AuthService {
     private final EmailService emailService;
     private final UserSyncService userSyncService;
     private final RoleResolutionStrategy roleStrategy;
+    private final LoginAttemptService loginAttempts;
 
     @Value("${app.default-role:ROLE_STUDENT}")
     private String defaultRole;
 
-    public User authenticate(LoginRequest request) {
-        var user = userRepository.findByEmail(request.getEmail())
-                .orElseThrow(() -> new BadRequestException("Invalid email or password"));
+    /**
+     * @param ip where the attempt came from, for the NFR-SEC-05 lockout.
+     */
+    public User authenticate(LoginRequest request, String ip) {
+        // First, so a caller already locked out costs one Redis read and no
+        // database work at all.
+        loginAttempts.assertNotLocked(request.getEmail(), ip);
 
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        var user = userRepository.findByEmail(request.getEmail()).orElse(null);
+        if (user == null || !passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+            // One message for both cases: saying which of the two was wrong
+            // would turn this endpoint into a way to test whether an email is
+            // registered here.
+            loginAttempts.recordFailure(request.getEmail(), ip);
             throw new BadRequestException("Invalid email or password");
         }
 
         if (!user.getActive()) {
+            // The password was right, so this is the owner rather than a
+            // guesser; their attempts should not count towards a lockout.
+            loginAttempts.recordSuccess(request.getEmail(), ip);
             if (user.getPendingApproval()) {
                 throw new BadRequestException("Tài khoản của bạn đang chờ admin duyệt. Vui lòng đợi.");
             }
             throw new BadRequestException("Tài khoản của bạn đã bị khóa. Vui lòng liên hệ quản trị viên.");
         }
 
+        loginAttempts.recordSuccess(request.getEmail(), ip);
         return user;
     }
 
