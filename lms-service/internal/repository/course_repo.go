@@ -221,12 +221,20 @@ func (r *CourseRepository) Publish(ctx context.Context, id int64) error {
 // ListByCreator lists one page of courses owned or co-taught by a user.
 // The page is selected before enrollment counts are aggregated, keeping work
 // bounded even when a prolific teacher owns thousands of courses.
+// ListByCreator returns the courses a teacher works on: the ones they wrote,
+// the ones they co-teach, and the ones behind a class they run.
+//
+// The third branch arrived with classes. Teaching is assigned at class level
+// now, so a teacher given a class had no route to its material at all - the
+// course list knew only about authorship, and the name of this method still
+// says so.
 func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64, filter CourseListFilter, limit, offset int) ([]*models.CourseWithCreator, int, error) {
 	countQuery := `
 		SELECT COUNT(*)
 		FROM courses c
 		WHERE (c.created_by = $1
-		   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1))
+		   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1)
+		   OR EXISTS (SELECT 1 FROM classes cl WHERE cl.course_id = c.id AND cl.teacher_id = $1))
 		  AND ($2 = '' OR c.status = $2)
 		  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
 		  AND ($4 = '' OR c.level = $4)
@@ -242,7 +250,8 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64, f
 			SELECT c.*
 			FROM courses c
 			WHERE (c.created_by = $1
-			   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1))
+			   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1)
+			   OR EXISTS (SELECT 1 FROM classes cl WHERE cl.course_id = c.id AND cl.teacher_id = $1))
 			  AND ($2 = '' OR c.status = $2)
 			  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
 			  AND ($4 = '' OR c.level = $4)
