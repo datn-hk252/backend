@@ -20,6 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.LinkedHashSet;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.Map;
 import java.util.Set;
 import java.util.Locale;
@@ -94,7 +96,16 @@ public class AuthService {
     }
 
     @Transactional
-    public List<User> bulkRegister(BulkRegisterRequest request) {
+    /**
+     * Outcome of an import: the accounts, and the addresses their password never
+     * reached.
+     */
+    public record BulkRegisterResult(List<User> users, List<String> emailFailures, boolean emailPending) {}
+
+    /** How long the import waits for the welcome mail before answering anyway. */
+    private static final int WELCOME_MAIL_WAIT_SECONDS = 30;
+
+    public BulkRegisterResult bulkRegister(BulkRegisterRequest request) {
         var registrations = request == null ? null : request.getUsers();
         if (registrations == null || registrations.isEmpty()) {
             throw new BadRequestException("Import batch must contain at least one user");
@@ -182,13 +193,41 @@ public class AuthService {
         List<User> saved = userRepository.saveAll(users);
         log.info("Bulk registered {} users", saved.size());
 
-        emailService.sendWelcomeBatch(emailToPassword, emailToName)
-                    .exceptionally(ex -> { log.error("Batch email error: {}", ex.getMessage()); return null; });
-
         userSyncService.syncUsers(saved)
                        .exceptionally(ex -> { log.error("LMS sync error: {}", ex.getMessage()); return null; });
 
-        return saved;
+        // Waited on rather than fired and forgotten. The generated password is
+        // stored hashed and exists nowhere else, so an address that failed
+        // leaves an account nobody can ever sign in to - and only the admin who
+        // ran this import is in a position to notice.
+        List<String> emailFailures = List.of();
+        boolean emailPending = false;
+        try {
+            emailFailures = emailService.sendWelcomeBatch(emailToPassword, emailToName)
+                                        .get(WELCOME_MAIL_WAIT_SECONDS, TimeUnit.SECONDS);
+        } catch (TimeoutException ex) {
+            // Still going. Say so instead of implying every address succeeded.
+            emailPending = true;
+            log.warn("Welcome mail for {} accounts still sending after {}s",
+                     saved.size(), WELCOME_MAIL_WAIT_SECONDS);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            emailFailures = List.copyOf(emailToPassword.keySet());
+            log.error("Interrupted while sending welcome mail");
+        } catch (Exception ex) {
+            // The batch itself broke, so nothing can be confirmed delivered.
+            // Reporting every address is the safe direction to be wrong in: a
+            // needless resend costs a new password, a missed one costs an
+            // account that cannot be used.
+            emailFailures = List.copyOf(emailToPassword.keySet());
+            log.error("Batch email error: {}", ex.getMessage());
+        }
+
+        if (!emailFailures.isEmpty()) {
+            log.warn("Welcome mail failed for {} of {} accounts", emailFailures.size(), saved.size());
+        }
+
+        return new BulkRegisterResult(saved, emailFailures, emailPending);
     }
 
     private String clean(String value) {

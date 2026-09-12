@@ -49,4 +49,14 @@ public interface UserService {
 
     /** Reject a pending user: set active=false, pendingApproval=false (blocked). */
     UserResponse rejectUser(Long id);
+
+    /**
+     * Issues a fresh temporary password and mails it to the account's address.
+     *
+     * Needed because the password an import generates is stored hashed and
+     * lives nowhere else, so a welcome mail that never arrived cannot be
+     * resent - only replaced. Throws if the mail fails, so the caller learns
+     * rather than the failure disappearing into a log.
+     */
+    void resendTemporaryPassword(Long id);
 }

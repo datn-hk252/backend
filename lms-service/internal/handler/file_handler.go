@@ -264,7 +264,7 @@ func (h *FileHandler) ServeFile(c *gin.Context) {
 	ext := strings.ToLower(filepath.Ext(filename))
 	// Uploaded source code, HTML/SVG and unknown binaries must download rather
 	// than execute/render in the LMS origin. Preview only passive media.
-	if (isImage(ext) && ext != ".svg") || isVideo(ext) || ext == ".pdf" {
+	if (isImage(ext) && ext != ".svg") || isVideo(ext) || isAudio(ext) || ext == ".pdf" {
 		c.Header("Content-Disposition", "inline")
 	} else {
 		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, filepath.Base(filename)))
@@ -568,6 +568,19 @@ func normalizeETag(etag string) string {
 
 func isImage(ext string) bool {
 	for _, e := range []string{".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"} {
+		if ext == e {
+			return true
+		}
+	}
+	return false
+}
+
+// isAudio names the listening material a player streams in place. Passive
+// media like video: nothing in these formats executes, so serving them inline
+// carries none of the risk that keeps HTML, SVG and source files on the
+// attachment side of the fence.
+func isAudio(ext string) bool {
+	for _, e := range []string{".mp3", ".wav", ".m4a", ".aac", ".ogg", ".oga", ".flac", ".wma"} {
 		if ext == e {
 			return true
 		}

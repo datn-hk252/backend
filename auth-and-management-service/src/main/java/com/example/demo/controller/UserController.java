@@ -1,5 +1,6 @@
 package com.example.demo.controller;
 
+import com.example.demo.dto.auth.MessageResponse;
 import com.example.demo.dto.user.ChangePasswordRequest;
 import com.example.demo.dto.user.UpdateUserRequest;
 import com.example.demo.dto.user.UpdateUserRoleRequest;
@@ -33,6 +34,14 @@ public class UserController {
 
     private final UserService userService;
 
+    /**
+     * The whole directory: every name, email, code and role.
+     *
+     * Only the admin screens ask for it - the user table and the people pickers
+     * on the class screen - and it is personal data about everyone at the
+     * centre, so a learner holding a valid token had no business reading it.
+     */
+    @PreAuthorize("hasRole('ADMIN')")
     @GetMapping
     public ResponseEntity<PageResponse<UserResponse>> getAll(
             @RequestParam(defaultValue = "0") int page,
@@ -45,11 +54,13 @@ public class UserController {
                 page, pageSize, query, role, sortBy, sortDirection));
     }
 
+    @PreAuthorize("hasRole('ADMIN') or @userSecurity.isSelf(#id, authentication.name)")
     @GetMapping("/{id}")
     public ResponseEntity<UserResponse> getById(@PathVariable Long id) {
         return ResponseEntity.ok(userService.getUserById(id));
     }
 
+    @PreAuthorize("hasRole('ADMIN') or @userSecurity.isSelf(#id, authentication.name)")
     @PutMapping("/{id}")
     public ResponseEntity<UserResponse> update(
             @PathVariable Long id,
@@ -65,6 +76,7 @@ public class UserController {
         return ResponseEntity.ok(userService.updateRole(id, req.getRole()));
     }
 
+    @PreAuthorize("hasRole('ADMIN') or @userSecurity.isSelf(#id, authentication.name)")
     @PostMapping("/{id}/change-password")
     public ResponseEntity<Map<String, String>> changePassword(
             @PathVariable Long id,
@@ -73,6 +85,7 @@ public class UserController {
         return ResponseEntity.ok(Map.of("message", "Password changed successfully"));
     }
 
+    @PreAuthorize("hasRole('ADMIN') or @userSecurity.isSelf(#id, authentication.name)")
     @PostMapping("/{id}/upload-picture")
     public ResponseEntity<Map<String, String>> uploadPicture(
             @PathVariable Long id,
@@ -87,10 +100,25 @@ public class UserController {
         return ResponseEntity.ok(userService.toggleActive(id));
     }
 
+    @PreAuthorize("hasRole('ADMIN')")
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id) {
         userService.deleteUser(id);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Issues a fresh temporary password and mails it.
+     *
+     * The password from an import exists only in the message that carried it -
+     * it is stored hashed, so a welcome mail that failed leaves an account
+     * nobody can sign in to and nothing to look up. This is the way back.
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/{id}/resend-password")
+    public ResponseEntity<MessageResponse> resendPassword(@PathVariable Long id) {
+        userService.resendTemporaryPassword(id);
+        return ResponseEntity.ok(new MessageResponse("Đã gửi lại mật khẩu tạm thời"));
     }
 
     @PreAuthorize("hasRole('ADMIN')")

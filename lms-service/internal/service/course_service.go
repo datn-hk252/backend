@@ -39,7 +39,6 @@ type CourseService struct {
 	courseRepo     *repository.CourseRepository
 	userRepo       *repository.UserRepository
 	enrollmentRepo *repository.EnrollmentRepository
-	orgRepo        *repository.OrganizationRepository
 	cache          *cache.RedisCache
 	loader         *cache.Loader
 	aiClient       *ai.Client
@@ -49,7 +48,6 @@ func NewCourseService(
 	courseRepo *repository.CourseRepository,
 	userRepo *repository.UserRepository,
 	enrollmentRepo *repository.EnrollmentRepository,
-	orgRepo *repository.OrganizationRepository,
 	c *cache.RedisCache,
 	aiClient *ai.Client,
 ) *CourseService {
@@ -57,7 +55,6 @@ func NewCourseService(
 		courseRepo:     courseRepo,
 		userRepo:       userRepo,
 		enrollmentRepo: enrollmentRepo,
-		orgRepo:        orgRepo,
 		cache:          c,
 		loader:         cache.NewLoader(c),
 		aiClient:       aiClient,
@@ -95,98 +92,28 @@ func (s *CourseService) getContentCached(ctx context.Context, contentID int64) (
 
 // CreateCourse creates a new course and invalidates the published-list cache.
 func (s *CourseService) CreateCourse(ctx context.Context, req *dto.CreateCourseRequest, creatorID int64) (*dto.CourseResponse, error) {
-	// Default org resolution
-	orgID := req.OrgID
-	if orgID == 0 {
-		userOrgs, err := s.orgRepo.GetUserOrgs(ctx, creatorID)
-		if err == nil && len(userOrgs) > 0 {
-			hasPrivateOrg := false
-			for _, uo := range userOrgs {
-				var settings models.OrgSettings
-				if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
-					orgID = uo.ID
-					hasPrivateOrg = true
-					break
-				}
-			}
-			if !hasPrivateOrg {
-				orgID = userOrgs[0].ID
-			}
-		} else {
-			defaultOrg, err := s.orgRepo.GetBySlug(ctx, "bdc")
-			if err != nil {
-				return nil, fmt.Errorf("default organization not found: %w", err)
-			}
-			orgID = defaultOrg.ID
-		}
-	}
-
-	// Verify org exists
-	org, err := s.orgRepo.GetByID(ctx, orgID)
-	if err != nil {
-		return nil, fmt.Errorf("organization not found: %w", err)
-	}
-
-	// Verify permissions: only ADMIN, Org ADMIN/OWNER, or Org MEMBER with TEACHER system role can create courses
+	// A centre has one set of staff, so the only question left is authorship:
+	// admins and teachers write material, nobody else does. The tiers of
+	// organisation membership this used to consult described a federation of
+	// clubs, which is not what a single language centre is.
 	sysRoles, err := s.userRepo.GetUserRoles(ctx, creatorID)
-	isAdmin := false
-	isTeacher := false
-	if err == nil {
-		for _, r := range sysRoles {
-			if r == "ADMIN" {
-				isAdmin = true
-			}
-			if r == "TEACHER" {
-				isTeacher = true
-			}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read creator roles: %w", err)
+	}
+	mayAuthor := false
+	for _, r := range sysRoles {
+		if r == models.RoleAdmin || r == models.RoleTeacher {
+			mayAuthor = true
+			break
 		}
 	}
-
-	if !isAdmin {
-		userOrgs, err := s.orgRepo.GetUserOrgs(ctx, creatorID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user organizations: %w", err)
-		}
-
-		hasPrivateOrg := false
-		for _, uo := range userOrgs {
-			var settings models.OrgSettings
-			if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
-				hasPrivateOrg = true
-				break
-			}
-		}
-
-		if hasPrivateOrg {
-			isMemberOfSelectedOrg := false
-			for _, uo := range userOrgs {
-				if uo.ID == orgID {
-					isMemberOfSelectedOrg = true
-					break
-				}
-			}
-			if !isMemberOfSelectedOrg {
-				return nil, fmt.Errorf("unauthorized: members of private organizations must create courses under their own organization")
-			}
-		} else {
-			isMember, orgRole, err := s.orgRepo.IsMember(ctx, orgID, creatorID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to verify organization membership: %w", err)
-			}
-			if !isMember || (orgRole != models.OrgRoleOwner && orgRole != models.OrgRoleAdmin && !isTeacher) {
-				return nil, fmt.Errorf("unauthorized: must be Owner or Admin in the organization, or have Teacher role, to create courses")
-			}
-		}
+	if !mayAuthor {
+		return nil, fmt.Errorf("unauthorized: only an admin or a teacher can create a course")
 	}
 
 	visibility := req.Visibility
 	if visibility == "" {
-		var settings models.OrgSettings
-		if err := json.Unmarshal(org.Settings, &settings); err == nil && settings.DefaultCourseVisibility != "" {
-			visibility = settings.DefaultCourseVisibility
-		} else {
-			visibility = models.VisibilityPublic
-		}
+		visibility = models.VisibilityPublic
 	}
 
 	course := &models.Course{
@@ -197,7 +124,6 @@ func (s *CourseService) CreateCourse(ctx context.Context, req *dto.CreateCourseR
 		ThumbnailURL: sql.NullString{String: req.ThumbnailURL, Valid: req.ThumbnailURL != ""},
 		Status:       models.CourseStatusDraft,
 		CreatedBy:    creatorID,
-		OrgID:        orgID,
 		Visibility:   visibility,
 	}
 
@@ -241,73 +167,12 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 		isEnrolled = s.isStudentEnrolled(ctx, userID, courseID)
 	}
 
-	// Course visibility is authoritative. Organization-level cross-course
-	// settings may expose PUBLIC courses, but must never expose ORG_ONLY courses
-	// to users who are not members of the owning organization.
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher && !isEnrolled && course.Visibility == models.VisibilityOrgOnly {
-		isMember, _, err := s.orgRepo.IsMember(ctx, course.OrgID, userID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to verify organization membership: %w", err)
-		}
-		if !isMember {
-			return nil, fmt.Errorf("unauthorized to view this organization-only course")
-		}
-	}
-
-	// Org isolation checks
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher && !isEnrolled {
-		userOrgs, err := s.orgRepo.GetUserOrgs(ctx, userID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user organizations: %w", err)
-		}
-
-		hasPrivateOrg := false
-		for _, uo := range userOrgs {
-			var settings models.OrgSettings
-			if err := json.Unmarshal(uo.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
-				hasPrivateOrg = true
-				break
-			}
-		}
-
-		if hasPrivateOrg {
-			// If they have a private org, they can only view courses of organizations they belong to!
-			isMemberOfCourseOrg := false
-			for _, uo := range userOrgs {
-				if uo.ID == course.OrgID {
-					isMemberOfCourseOrg = true
-					break
-				}
-			}
-			if !isMemberOfCourseOrg {
-				return nil, fmt.Errorf("unauthorized to view cross-organization courses")
-			}
-		} else {
-			isMember, _, err := s.orgRepo.IsMember(ctx, course.OrgID, userID)
-			if err != nil {
-				return nil, fmt.Errorf("failed to verify organization membership: %w", err)
-			}
-
-			if !isMember {
-				if course.Visibility != models.VisibilityPublic {
-					return nil, fmt.Errorf("unauthorized to view this course")
-				}
-
-				allowCross := len(userOrgs) == 0
-				for _, uo := range userOrgs {
-					var settings models.OrgSettings
-					if err := json.Unmarshal(uo.Settings, &settings); err == nil && settings.AllowCrossOrgCourses {
-						allowCross = true
-						break
-					}
-				}
-
-				if !allowCross {
-					return nil, fmt.Errorf("unauthorized to view cross-organization courses")
-				}
-			}
-		}
-	}
+	// Everything above already decided this: a draft is for its author, an
+	// archived course for those enrolled in it. What remains is a published
+	// course, and in a single centre every member of it may read those. The
+	// cross-organisation isolation that used to stand here was answering a
+	// question this system no longer has.
+	_ = isEnrolled
 
 	return s.toCourseResponseWithCreator(course), nil
 }
@@ -322,17 +187,16 @@ func (s *CourseService) UpdateCourse(ctx context.Context, courseID int64, req *d
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	// Check if user is system admin/teacher
-	sysRoles, err := s.userRepo.GetUserRoles(ctx, userID)
+	// The JWT carries one role; the role table is the fuller answer, so consult
+	// both before deciding this is not an administrator.
 	isAdmin := role == models.RoleAdmin
-	isTeacher := role == models.RoleTeacher
-	if err == nil {
-		for _, r := range sysRoles {
-			if r == "ADMIN" {
-				isAdmin = true
-			}
-			if r == "TEACHER" {
-				isTeacher = true
+	if !isAdmin {
+		if sysRoles, err := s.userRepo.GetUserRoles(ctx, userID); err == nil {
+			for _, r := range sysRoles {
+				if r == models.RoleAdmin {
+					isAdmin = true
+					break
+				}
 			}
 		}
 	}
@@ -358,17 +222,6 @@ func (s *CourseService) UpdateCourse(ctx context.Context, courseID int64, req *d
 	}
 	if req.ThumbnailURL != nil {
 		updates["thumbnail_url"] = *req.ThumbnailURL
-	}
-	if req.OrgID != nil {
-		targetOrgID := *req.OrgID
-		if !isAdmin {
-			// Must be Owner/Admin in target org, or have Teacher role, to assign course to it
-			isMember, orgRole, err := s.orgRepo.IsMember(ctx, targetOrgID, userID)
-			if err != nil || !isMember || (orgRole != models.OrgRoleOwner && orgRole != models.OrgRoleAdmin && !isTeacher) {
-				return fmt.Errorf("unauthorized to assign course to organization %d", targetOrgID)
-			}
-		}
-		updates["org_id"] = targetOrgID
 	}
 	if req.Visibility != nil {
 		updates["visibility"] = *req.Visibility
@@ -535,55 +388,15 @@ func (s *CourseService) ListMyCourses(ctx context.Context, userID int64, filter 
 //
 // This is the catalogue/discovery endpoint. Role and ownership must not make a
 // draft visible here: authors manage drafts through ListMyCourses instead.
-func (s *CourseService) ListPublishedCourses(ctx context.Context, userID int64, filter dto.FilterRequest, limit, offset int) ([]*dto.CourseResponse, int, error) {
-	// Fetch user's organizations
-	orgs, err := s.orgRepo.GetUserOrgs(ctx, userID)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to list published courses: %w", err)
+func (s *CourseService) ListPublishedCourses(ctx context.Context, _ int64, filter dto.FilterRequest, limit, offset int) ([]*dto.CourseResponse, int, error) {
+	repoFilter := repository.CourseListFilter{
+		Status:   models.CourseStatusPublished,
+		Category: filter.Category,
+		Level:    filter.Level,
+		Search:   filter.Search,
 	}
 
-	orgIDs := make([]int64, 0, len(orgs))
-	includePublic := true
-
-	// Check if the user belongs to any private organization (AllowCrossOrgCourses = false)
-	hasPrivateOrg := false
-	for _, org := range orgs {
-		var settings models.OrgSettings
-		if err := json.Unmarshal(org.Settings, &settings); err == nil && !settings.AllowCrossOrgCourses {
-			hasPrivateOrg = true
-			break
-		}
-	}
-
-	for _, org := range orgs {
-		orgIDs = append(orgIDs, org.ID)
-		var settings models.OrgSettings
-		err := json.Unmarshal(org.Settings, &settings)
-
-		if hasPrivateOrg {
-			includePublic = false
-		} else {
-			if err == nil && settings.AllowCrossOrgCourses {
-				includePublic = true
-			}
-		}
-	}
-
-	// Default fallback if user has no orgs
-	if len(orgs) == 0 {
-		includePublic = true
-	}
-
-	visibilityFilter := repository.CourseVisibilityFilter{
-		UserID:        userID,
-		UserOrgIDs:    orgIDs,
-		IncludePublic: includePublic,
-		Category:      filter.Category,
-		Level:         filter.Level,
-		Search:        filter.Search,
-	}
-
-	courses, total, err := s.courseRepo.ListVisibleForUser(ctx, visibilityFilter, limit, offset)
+	courses, total, err := s.courseRepo.ListPublished(ctx, repoFilter, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list published courses: %w", err)
 	}
@@ -1114,7 +927,6 @@ func (s *CourseService) toCourseResponse(course *models.Course) *dto.CourseRespo
 		CreatedBy:  course.CreatedBy,
 		CreatedAt:  course.CreatedAt,
 		UpdatedAt:  course.UpdatedAt,
-		OrgID:      course.OrgID,
 		Visibility: course.Visibility,
 	}
 

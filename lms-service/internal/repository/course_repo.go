@@ -21,8 +21,8 @@ func NewCourseRepository(db *sql.DB) *CourseRepository {
 // Create creates a new course
 func (r *CourseRepository) Create(ctx context.Context, course *models.Course) (*models.Course, error) {
 	query := `
-		INSERT INTO courses (title, description, category, level, thumbnail_url, status, created_by, org_id, visibility)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		INSERT INTO courses (title, description, category, level, thumbnail_url, status, created_by, visibility)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id, created_at, updated_at
 	`
 
@@ -34,7 +34,6 @@ func (r *CourseRepository) Create(ctx context.Context, course *models.Course) (*
 		course.ThumbnailURL,
 		course.Status,
 		course.CreatedBy,
-		course.OrgID,
 		course.Visibility,
 	).Scan(&course.ID, &course.CreatedAt, &course.UpdatedAt)
 
@@ -50,7 +49,7 @@ func (r *CourseRepository) GetByID(ctx context.Context, id int64) (*models.Cours
 	query := `
 		SELECT c.id, c.title, c.description, c.category, c.level, c.thumbnail_url,
 		       c.status, c.created_by, c.created_at, c.updated_at, c.published_at,
-		       c.org_id, c.visibility,
+		       c.visibility,
 		       u.full_name as creator_name, u.email as creator_email, COALESCE(u.profile_picture, '') as creator_avatar_url,
 		       (SELECT COUNT(*) FROM enrollments e WHERE e.course_id = c.id AND e.status = 'ACCEPTED') as enrollment_count
 		FROM courses c
@@ -71,7 +70,6 @@ func (r *CourseRepository) GetByID(ctx context.Context, id int64) (*models.Cours
 		&course.CreatedAt,
 		&course.UpdatedAt,
 		&course.PublishedAt,
-		&course.OrgID,
 		&course.Visibility,
 		&course.CreatorName,
 		&course.CreatorEmail,
@@ -223,12 +221,20 @@ func (r *CourseRepository) Publish(ctx context.Context, id int64) error {
 // ListByCreator lists one page of courses owned or co-taught by a user.
 // The page is selected before enrollment counts are aggregated, keeping work
 // bounded even when a prolific teacher owns thousands of courses.
+// ListByCreator returns the courses a teacher works on: the ones they wrote,
+// the ones they co-teach, and the ones behind a class they run.
+//
+// The third branch arrived with classes. Teaching is assigned at class level
+// now, so a teacher given a class had no route to its material at all - the
+// course list knew only about authorship, and the name of this method still
+// says so.
 func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64, filter CourseListFilter, limit, offset int) ([]*models.CourseWithCreator, int, error) {
 	countQuery := `
 		SELECT COUNT(*)
 		FROM courses c
 		WHERE (c.created_by = $1
-		   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1))
+		   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1)
+		   OR EXISTS (SELECT 1 FROM classes cl WHERE cl.course_id = c.id AND cl.teacher_id = $1))
 		  AND ($2 = '' OR c.status = $2)
 		  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
 		  AND ($4 = '' OR c.level = $4)
@@ -244,7 +250,8 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64, f
 			SELECT c.*
 			FROM courses c
 			WHERE (c.created_by = $1
-			   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1))
+			   OR EXISTS (SELECT 1 FROM course_co_teachers ct WHERE ct.course_id = c.id AND ct.user_id = $1)
+			   OR EXISTS (SELECT 1 FROM classes cl WHERE cl.course_id = c.id AND cl.teacher_id = $1))
 			  AND ($2 = '' OR c.status = $2)
 			  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
 			  AND ($4 = '' OR c.level = $4)
@@ -260,7 +267,7 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64, f
 		)
 		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
 		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
-		       p.org_id, p.visibility,
+		       p.visibility,
 		       u.full_name as creator_name, u.email as creator_email, COALESCE(u.profile_picture, '') as creator_avatar_url,
 		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
 		FROM page p
@@ -290,7 +297,6 @@ func (r *CourseRepository) ListByCreator(ctx context.Context, creatorID int64, f
 			&course.CreatedAt,
 			&course.UpdatedAt,
 			&course.PublishedAt,
-			&course.OrgID,
 			&course.Visibility,
 			&course.CreatorName,
 			&course.CreatorEmail,
@@ -339,7 +345,7 @@ func (r *CourseRepository) ListAll(ctx context.Context, filter CourseListFilter,
 		)
 		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
 		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
-		       p.org_id, p.visibility,
+		       p.visibility,
 		       u.full_name as creator_name, u.email as creator_email, COALESCE(u.profile_picture, '') as creator_avatar_url,
 		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
 		FROM page p
@@ -359,7 +365,7 @@ func (r *CourseRepository) ListAll(ctx context.Context, filter CourseListFilter,
 		course := &models.CourseWithCreator{}
 		if err := rows.Scan(&course.ID, &course.Title, &course.Description, &course.Category, &course.Level, &course.ThumbnailURL,
 			&course.Status, &course.CreatedBy, &course.CreatedAt, &course.UpdatedAt, &course.PublishedAt,
-			&course.OrgID, &course.Visibility, &course.CreatorName, &course.CreatorEmail, &course.CreatorAvatarURL,
+			&course.Visibility, &course.CreatorName, &course.CreatorEmail, &course.CreatorAvatarURL,
 			&course.EnrollmentCount); err != nil {
 			return nil, 0, err
 		}
@@ -402,7 +408,7 @@ func (r *CourseRepository) ListPublished(ctx context.Context, filter CourseListF
 		)
 		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
 		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
-		       p.org_id, p.visibility,
+		       p.visibility,
 		       u.full_name as creator_name, u.email as creator_email, COALESCE(u.profile_picture, '') as creator_avatar_url,
 		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
 		FROM page p
@@ -432,7 +438,6 @@ func (r *CourseRepository) ListPublished(ctx context.Context, filter CourseListF
 			&course.CreatedAt,
 			&course.UpdatedAt,
 			&course.PublishedAt,
-			&course.OrgID,
 			&course.Visibility,
 			&course.CreatorName,
 			&course.CreatorEmail,
@@ -841,122 +846,11 @@ func (r *CourseRepository) GetContentAIIndexStatus(
 	return
 }
 
-// CourseVisibilityFilter defines filters for course listing based on organization visibility rules
-type CourseVisibilityFilter struct {
-	UserID        int64
-	UserOrgIDs    []int64
-	IncludePublic bool
-	Category      string
-	Level         string
-	Search        string
-}
-
 type CourseListFilter struct {
 	Status   string
 	Category string
 	Level    string
 	Search   string
-}
-
-// ListVisibleForUser lists courses visible to a user based on org isolation rules
-func (r *CourseRepository) ListVisibleForUser(ctx context.Context, filter CourseVisibilityFilter, limit, offset int) ([]*models.CourseWithCreator, int, error) {
-	// Resolve membership in SQL instead of trusting a caller-provided org list.
-	// This keeps ORG_ONLY visibility tied to the current membership row.
-	countQuery := `
-		SELECT COUNT(*)
-		FROM courses c
-		WHERE c.status = 'PUBLISHED'
-		  AND (
-		    EXISTS (
-		      SELECT 1 FROM organization_members om
-		      WHERE om.org_id = c.org_id AND om.user_id = $1
-		    )
-		    OR ($2 AND c.visibility = 'PUBLIC')
-		  )
-		  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
-		  AND ($4 = '' OR c.level = $4)
-		  AND ($5 = '' OR c.title ILIKE '%' || $5 || '%' OR COALESCE(c.description, '') ILIKE '%' || $5 || '%')
-	`
-	var total int
-	err := r.db.QueryRowContext(ctx, countQuery, filter.UserID, filter.IncludePublic, filter.Category, filter.Level, filter.Search).Scan(&total)
-	if err != nil {
-		return nil, 0, err
-	}
-
-	query := `
-		WITH page AS (
-			SELECT c.*
-			FROM courses c
-			WHERE c.status = 'PUBLISHED'
-			  AND (
-			    EXISTS (
-			      SELECT 1 FROM organization_members om
-			      WHERE om.org_id = c.org_id AND om.user_id = $1
-			    )
-			    OR ($2 AND c.visibility = 'PUBLIC')
-			  )
-			  AND ($3 = '' OR c.category ILIKE '%' || $3 || '%')
-			  AND ($4 = '' OR c.level = $4)
-			  AND ($5 = '' OR c.title ILIKE '%' || $5 || '%' OR COALESCE(c.description, '') ILIKE '%' || $5 || '%')
-			ORDER BY c.published_at DESC, c.id DESC
-			LIMIT $6 OFFSET $7
-		), enrollment_counts AS (
-			SELECT e.course_id, COUNT(*) AS enrollment_count
-			FROM enrollments e
-			JOIN page p ON p.id = e.course_id
-			WHERE e.status = 'ACCEPTED'
-			GROUP BY e.course_id
-		)
-		SELECT p.id, p.title, p.description, p.category, p.level, p.thumbnail_url,
-		       p.status, p.created_by, p.created_at, p.updated_at, p.published_at,
-		       p.org_id, p.visibility,
-		       u.full_name as creator_name, u.email as creator_email, COALESCE(u.profile_picture, '') as creator_avatar_url,
-		       COALESCE(ec.enrollment_count, 0) AS enrollment_count
-		FROM page p
-		LEFT JOIN users u ON p.created_by = u.id
-		LEFT JOIN enrollment_counts ec ON ec.course_id = p.id
-		ORDER BY p.published_at DESC, p.id DESC
-	`
-
-	rows, err := r.db.QueryContext(ctx, query, filter.UserID, filter.IncludePublic, filter.Category, filter.Level, filter.Search, limit, offset)
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-
-	var courses []*models.CourseWithCreator
-	for rows.Next() {
-		var course models.CourseWithCreator
-		err := rows.Scan(
-			&course.ID,
-			&course.Title,
-			&course.Description,
-			&course.Category,
-			&course.Level,
-			&course.ThumbnailURL,
-			&course.Status,
-			&course.CreatedBy,
-			&course.CreatedAt,
-			&course.UpdatedAt,
-			&course.PublishedAt,
-			&course.OrgID,
-			&course.Visibility,
-			&course.CreatorName,
-			&course.CreatorEmail,
-			&course.CreatorAvatarURL,
-			&course.EnrollmentCount,
-		)
-		if err != nil {
-			return nil, 0, err
-		}
-		courses = append(courses, &course)
-	}
-
-	if err = rows.Err(); err != nil {
-		return nil, 0, err
-	}
-
-	return courses, total, nil
 }
 
 // AddCoTeacher inserts a co-teacher into a course

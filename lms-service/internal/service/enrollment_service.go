@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -23,7 +22,6 @@ type EnrollmentService struct {
 	courseRepo     *repository.CourseRepository
 	userRepo       *repository.UserRepository
 	progressRepo   *repository.ProgressRepository
-	orgRepo        *repository.OrganizationRepository
 	cache          *cache.RedisCache
 	loader         *cache.Loader
 }
@@ -33,7 +31,6 @@ func NewEnrollmentService(
 	courseRepo *repository.CourseRepository,
 	userRepo *repository.UserRepository,
 	progressRepo *repository.ProgressRepository,
-	orgRepo *repository.OrganizationRepository,
 	c *cache.RedisCache,
 ) *EnrollmentService {
 	return &EnrollmentService{
@@ -41,7 +38,6 @@ func NewEnrollmentService(
 		courseRepo:     courseRepo,
 		userRepo:       userRepo,
 		progressRepo:   progressRepo,
-		orgRepo:        orgRepo,
 		cache:          c,
 		loader:         cache.NewLoader(c),
 	}
@@ -115,42 +111,10 @@ func (s *EnrollmentService) EnrollCourse(ctx context.Context, courseID, studentI
 		return nil, fmt.Errorf("student already enrolled in this course")
 	}
 
-	// Org isolation checks for enrollment
-	userOrgs, err := s.orgRepo.GetUserOrgs(ctx, studentID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify student organization: %w", err)
-	}
-
-	// ORG_ONLY always means membership in this exact organization. A public
-	// organization or an allow-cross-org setting cannot override the course's
-	// explicit visibility choice.
-	isMemberOfCourseOrg, _, err := s.orgRepo.IsMember(ctx, course.OrgID, studentID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to verify organization membership: %w", err)
-	}
-	if !isMemberOfCourseOrg {
-		if course.Visibility == models.VisibilityOrgOnly {
-			return nil, fmt.Errorf("unauthorized to enroll in this organization-only course")
-		}
-
-		// Only a PUBLIC course can reach cross-organization policy checks.
-		// Membership in any private organization disables outside enrollment;
-		// otherwise at least one membership must allow it (users with no orgs
-		// retain access to public courses).
-		allowCross := len(userOrgs) == 0
-		for _, uo := range userOrgs {
-			var settings models.OrgSettings
-			if err := json.Unmarshal(uo.Settings, &settings); err == nil {
-				if !settings.AllowCrossOrgCourses {
-					return nil, fmt.Errorf("unauthorized to enroll in cross-organization courses")
-				}
-				allowCross = true
-			}
-		}
-		if !allowCross {
-			return nil, fmt.Errorf("unauthorized to enroll in cross-organization courses")
-		}
-	}
+	// Enrolment is no longer something a learner reaches on their own: the class
+	// roster writes this row, and the admin owns the roster. The organisation
+	// membership tests that used to guard it were the last thing standing
+	// between a learner and a course they had chosen for themselves.
 
 	enrollment := &models.Enrollment{
 		CourseID:  courseID,

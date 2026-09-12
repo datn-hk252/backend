@@ -120,7 +120,6 @@ func main() {
 	classRepo := repository.NewClassRepository(db)
 	roleDefRepo := repository.NewRoleDefinitionRepository(db)
 	permRepo := repository.NewPermissionRepository(db)
-	orgRepo := repository.NewOrganizationRepository(db)
 
 	microLessonRepo := repository.NewMicroLessonRepository(db)
 	microInteractionRepo := repository.NewMicroInteractionRepository(db)
@@ -213,9 +212,8 @@ func main() {
 	// singleflight-backed Loader internally so cache stampedes on hot keys
 	// only ever produce one DB query per process.
 	userService := service.NewUserService(userRepo, redisClient)
-	orgService := service.NewOrganizationService(orgRepo, userRepo, redisClient)
-	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, orgRepo, redisClient, aiClient)
-	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, orgRepo, redisClient)
+	courseService := service.NewCourseService(courseRepo, userRepo, enrollmentRepo, redisClient, aiClient)
+	enrollmentService := service.NewEnrollmentService(enrollmentRepo, courseRepo, userRepo, progressRepo, redisClient)
 	classService := service.NewClassService(classRepo)
 	bankRepo := repository.NewQuestionBankRepository(db)
 	quizService := service.NewQuizService(quizRepo, courseRepo, userRepo, progressRepo, aiClient, bankRepo)
@@ -257,7 +255,6 @@ func main() {
 	sectionOverviewHandler := handler.NewSectionOverviewHandler(sectionOverviewRepo, courseRepo, quizRepo, aiClient, redisClient)
 	roleAdminHandler := handler.NewRoleAdminHandler(roleAdminService)
 	permHandler := handler.NewPermissionHandler(permService)
-	orgHandler := handler.NewOrganizationHandler(orgService)
 
 	// Setup Gin router
 	if cfg.App.Env == "production" {
@@ -311,11 +308,7 @@ func main() {
 		{
 			sync.POST("/user", syncHandler.SyncUser)
 			sync.POST("/users/bulk", syncHandler.BulkSyncUsers)
-			sync.DELETE("/user/:userId", syncHandler.DeleteUser)
-			sync.POST("/organizations", syncHandler.SyncOrganization)
-			sync.DELETE("/organizations/:orgId", syncHandler.DeleteOrganization)
-			sync.POST("/organization-members", syncHandler.SyncOrganizationMember)
-			sync.DELETE("/organization-members/:orgId/users/:userId", syncHandler.RemoveOrganizationMember)
+			sync.DELETE("/user/:userId", syncHandler.RevokeUserAccess)
 		}
 
 		// FILE SERVING - Public access (no auth needed for viewing)
@@ -422,30 +415,11 @@ func main() {
 				adminUsers.DELETE("/:userId/roles/:role", roleAdminHandler.RemoveRoleFromUser)
 			}
 
-			// ORGANIZATION MANAGEMENT (Super Admin)
-			adminOrgs := auth.Group("/admin/organizations")
-			adminOrgs.Use(middleware.RequireRoles("ADMIN"))
-			{
-				adminOrgs.GET("", orgHandler.ListOrganizations)
-				adminOrgs.POST("", orgHandler.CreateOrganization)
-				adminOrgs.GET("/:id", orgHandler.GetOrganization)
-				adminOrgs.PUT("/:id", orgHandler.UpdateOrganization)
-				adminOrgs.DELETE("/:id", orgHandler.DeactivateOrganization)
-				adminOrgs.GET("/:id/stats", orgHandler.GetOrgStats)
-				adminOrgs.GET("/:id/members", orgHandler.ListMembers)
-				adminOrgs.POST("/:id/members", orgHandler.AddMember)
-				adminOrgs.POST("/:id/members/bulk", orgHandler.BulkAddMembers)
-				adminOrgs.PUT("/:id/members/:userId/role", orgHandler.UpdateMemberRole)
-				adminOrgs.DELETE("/:id/members/:userId", orgHandler.RemoveMember)
-			}
 			adminCourses := auth.Group("/admin/courses")
 			adminCourses.Use(middleware.RequireRoles("ADMIN"))
 			{
 				adminCourses.GET("", courseHandler.ListAllCoursesForAdmin)
 			}
-
-			// Student-facing: list my orgs
-			auth.GET("/my/orgs", orgHandler.GetMyOrganizations)
 
 			// -- Composite Analytics (Quick Action Panel + heatmap) ---------
 			// POST /analytics/micro-interaction is hit by every flashcard

@@ -58,8 +58,10 @@ public class EmailServiceImpl implements EmailService {
     }
 
     @Async("emailExecutor")
-    public CompletableFuture<Void> sendWelcomeBatch(Map<String, String> emailToPassword,
+    public CompletableFuture<java.util.List<String>> sendWelcomeBatch(Map<String, String> emailToPassword,
                                                      Map<String, String> emailToName) {
+        var failures = java.util.Collections.synchronizedList(new java.util.ArrayList<String>());
+
         try (var vtExecutor = Executors.newVirtualThreadPerTaskExecutor()) {
             var futures = emailToPassword.entrySet().stream()
                     .map(entry -> CompletableFuture.runAsync(
@@ -69,10 +71,13 @@ public class EmailServiceImpl implements EmailService {
                             vtExecutor
                     ).exceptionally(ex -> {
                         log.error("Failed email to {}: {}", entry.getKey(), ex.getMessage());
+                        failures.add(entry.getKey());
                         return null;
                     }))
                     .toArray(CompletableFuture[]::new);
-            return CompletableFuture.allOf(futures);
+
+            return CompletableFuture.allOf(futures)
+                    .thenApply(ignored -> java.util.List.copyOf(failures));
         }
     }
 

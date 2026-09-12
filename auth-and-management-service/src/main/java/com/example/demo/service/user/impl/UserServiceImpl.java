@@ -366,6 +366,26 @@ public class UserServiceImpl implements UserService {
         return UserResponse.fromEntity(saved);
     }
 
+    @Override
+    @Transactional
+    public void resendTemporaryPassword(Long id) {
+        var user = findUserEntity(id);
+
+        // A resend is really a reset: the old password is a bcrypt hash and
+        // cannot be read back, so the only thing that can be sent is a new one.
+        String password = com.example.demo.utils.PasswordGenerator.generateStrongPassword();
+        user.setPassword(passwordEncoder.encode(password));
+        userRepository.save(user);
+
+        // Sent synchronously and allowed to throw. The whole point of this
+        // endpoint is that the admin finds out whether the mail went; swallowing
+        // the failure here would recreate the problem it exists to fix - and
+        // worse, the account's old password would already have been replaced.
+        emailService.sendWelcomeEmail(user.getEmail(), user.getName(), password);
+
+        log.info("Temporary password reissued for {}", user.getEmail());
+    }
+
     // Helpers
 
     /** Entity-level lookup */
