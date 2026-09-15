@@ -75,10 +75,10 @@ func (s *QuizService) CreateQuiz(ctx context.Context, req *dto.CreateQuizRequest
 		return nil, fmt.Errorf("course not found")
 	}
 
-	// Check permission (owner, co-teacher, or admin)
+	// Check permission (any of the course's teachers, or admin)
 	if userRole != "ADMIN" && course.CreatedBy != createdBy {
-		isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, course.ID, createdBy)
-		if err != nil || !isCoTeacher {
+		canTeachCourse, err := s.courseRepo.IsCourseTeacher(ctx, course.ID, createdBy)
+		if err != nil || !canTeachCourse {
 			return nil, fmt.Errorf("permission denied: you don't own this course")
 		}
 	}
@@ -871,7 +871,7 @@ func (s *QuizService) SubmitAnswer(ctx context.Context, req *dto.SubmitAnswerReq
 	}
 
 	// Auto-grade if possible
-	if quiz.AutoGrade && s.canAutoGrade(question.QuestionType) {
+	if quiz.AutoGrade && s.canAutoGrade(ctx, question) {
 		if err := s.autoGradeAnswer(ctx, answer, question); err != nil {
 			// Log error but don't fail the submission
 			fmt.Printf("Auto-grading failed: %v\n", err)
@@ -932,7 +932,7 @@ func (s *QuizService) SubmitQuiz(ctx context.Context, attemptID, studentID int64
 				if err != nil {
 					return nil
 				}
-				if s.canAutoGrade(question.QuestionType) {
+				if s.canAutoGrade(gCtx, question) {
 					if err := s.autoGradeAnswer(gCtx, &ans, question); err != nil {
 						logger.Error(fmt.Sprintf("Auto-grade failed for question %d", ans.QuestionID), err)
 					} else {
@@ -1312,21 +1312,33 @@ func (s *QuizService) ListStudentAnswersForGrading(ctx context.Context, quizID i
 	return dtoAnswers, nil
 }
 
-// canAutoGrade checks if a question type can be auto-graded
-func (s *QuizService) canAutoGrade(questionType string) bool {
-	autoGradableTypes := []string{
-		models.QuestionTypeSingleChoice,
+// canAutoGrade reports whether the machine can mark this question.
+//
+// For most types the answer is fixed by the type alone. A short answer is the
+// exception: it can be marked only when the teacher wrote down what counts as
+// correct. The form has always offered that field and the answers have always
+// been stored - they were simply never read, so every short answer waited for
+// a teacher who had already done the work.
+func (s *QuizService) canAutoGrade(ctx context.Context, question *models.QuizQuestion) bool {
+	switch question.QuestionType {
+	case models.QuestionTypeSingleChoice,
 		models.QuestionTypeMultipleChoice,
 		models.QuestionTypeFillBlankText,
-		models.QuestionTypeFillBlankDropdown,
-	}
+		models.QuestionTypeFillBlankDropdown:
+		return true
 
-	for _, t := range autoGradableTypes {
-		if t == questionType {
-			return true
-		}
+	case models.QuestionTypeShortAnswer:
+		// No answer key means nothing to compare against. Marking it wrong
+		// would be a guess, so it goes to the teacher - the old behaviour,
+		// now only for the questions that actually need it.
+		answers, err := s.quizRepo.ListCorrectAnswers(ctx, question.ID)
+		return err == nil && len(answers) > 0
+
+	default:
+		// ESSAY and FILE_UPLOAD stay manual whatever is stored against them:
+		// an essay is not right or wrong by string comparison.
+		return false
 	}
-	return false
 }
 
 // autoGradeAnswer automatically grades an answer
@@ -1348,6 +1360,8 @@ func (s *QuizService) autoGradeAnswer(ctx context.Context, answer *models.QuizSt
 		isCorrect, err = s.gradeFillBlankText(ctx, answerData, question.ID)
 	case models.QuestionTypeFillBlankDropdown:
 		isCorrect, err = s.gradeFillBlankDropdown(ctx, answerData, question.ID)
+	case models.QuestionTypeShortAnswer:
+		isCorrect, err = s.gradeShortAnswer(ctx, answerData, question.ID)
 	default:
 		return fmt.Errorf("cannot auto-grade question type: %s", question.QuestionType)
 	}
@@ -1479,20 +1493,25 @@ func (s *QuizService) gradeFillBlankText(ctx context.Context, answerData map[str
 				continue
 			}
 
+			// Folded into locals rather than in place: lowercasing studentAnswer
+			// itself left it lowercased for the remaining correct answers, and one
+			// of those may be marked case-sensitive - which would then compare a
+			// string the student never typed.
+			candidate := studentAnswer
 			correctText := correct.AnswerText.String
 			if !correct.CaseSensitive {
 				correctText = strings.ToLower(correctText)
-				studentAnswer = strings.ToLower(studentAnswer)
+				candidate = strings.ToLower(candidate)
 			}
 
 			if correct.ExactMatch {
-				if studentAnswer == correctText {
+				if candidate == correctText {
 					matched = true
 					break
 				}
 			} else {
 				// Partial match - contains the correct answer
-				if strings.Contains(studentAnswer, correctText) {
+				if strings.Contains(candidate, correctText) {
 					matched = true
 					break
 				}
@@ -1505,6 +1524,56 @@ func (s *QuizService) gradeFillBlankText(ctx context.Context, answerData map[str
 	}
 
 	return true, nil
+}
+
+// gradeShortAnswer marks one free-text answer against the question's key.
+//
+// Matching follows the same two flags the fill-in-the-blank grader uses, set
+// per correct answer: case_sensitive decides whether case counts, exact_match
+// decides between equality and containment. Several correct answers may be
+// listed; matching any one of them is enough.
+func (s *QuizService) gradeShortAnswer(ctx context.Context, answerData map[string]interface{}, questionID int64) (bool, error) {
+	typed, ok := answerData["answer_text"].(string)
+	if !ok {
+		return false, fmt.Errorf("invalid answer format: answer_text missing")
+	}
+	typed = strings.TrimSpace(typed)
+
+	correctAnswers, err := s.quizRepo.ListCorrectAnswers(ctx, questionID)
+	if err != nil {
+		return false, err
+	}
+	if len(correctAnswers) == 0 {
+		// canAutoGrade checked this already; reaching here means the key was
+		// removed in between, and a wrong mark would be invented rather than
+		// earned.
+		return false, fmt.Errorf("no answer key recorded for question %d", questionID)
+	}
+
+	for _, correct := range correctAnswers {
+		if !correct.AnswerText.Valid {
+			continue
+		}
+		// Both sides are folded into locals: lowercasing the student's answer
+		// in place would leak into the next comparison, which may be one the
+		// teacher marked case-sensitive.
+		candidate := typed
+		expected := strings.TrimSpace(correct.AnswerText.String)
+		if !correct.CaseSensitive {
+			candidate = strings.ToLower(candidate)
+			expected = strings.ToLower(expected)
+		}
+
+		if correct.ExactMatch {
+			if candidate == expected {
+				return true, nil
+			}
+		} else if strings.Contains(candidate, expected) {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // gradeFillBlankDropdown grades fill-in-the-blank dropdown questions
@@ -1629,6 +1698,8 @@ func (s *QuizService) calculateAttemptScore(ctx context.Context, attempt *models
 
 	isPassed := false
 	if quiz.PassingScore.Valid {
+		// passing_score is a percentage: the teacher enters it as one and every
+		// screen renders it with a % sign.
 		isPassed = percentage >= quiz.PassingScore.Float64
 	} else {
 		isPassed = percentage > 0.0
@@ -1637,7 +1708,13 @@ func (s *QuizService) calculateAttemptScore(ctx context.Context, attempt *models
 	attempt.TotalPoints = sql.NullFloat64{Float64: finalTotalPoints, Valid: true}
 	attempt.EarnedPoints = sql.NullFloat64{Float64: scaledEarnedPoints, Valid: true}
 	attempt.Percentage = sql.NullFloat64{Float64: percentage, Valid: true}
-	attempt.IsPassed = sql.NullBool{Bool: isPassed, Valid: true}
+
+	// Pass or fail is a verdict on the whole paper, so it waits for the whole
+	// paper. While an essay sits unmarked its points count as zero, and writing
+	// the verdict anyway told a learner they had failed - or worse, passed -
+	// on a score their teacher had not finished producing. NULL here means
+	// "not decided yet"; the score fields above still show what is marked.
+	attempt.IsPassed = sql.NullBool{Bool: isPassed, Valid: allAnswersGraded}
 	
 	// Only mark as GRADED if all manual-grading questions have been graded
 	if allAnswersGraded {
@@ -1742,7 +1819,8 @@ func (s *QuizService) validateAnswerData(questionType string, answerData map[str
 	return nil
 }
 
-// verifyQuizOwnership verifies user owns the quiz, is a co-teacher, or is admin
+// verifyQuizOwnership verifies the user may act on the quiz's course as one of
+// its teachers - author, co-teacher, or teacher of a class running it - or is admin
 func (s *QuizService) verifyQuizOwnership(ctx context.Context, quizID, userID int64, userRole string) error {
 	if userRole == "ADMIN" {
 		return nil
@@ -1757,18 +1835,18 @@ func (s *QuizService) verifyQuizOwnership(ctx context.Context, quizID, userID in
 		return nil
 	}
 
-	// Check if user is a co-teacher of the course containing the quiz
+	// Check if the user teaches the course containing the quiz
 	courseID, err := s.quizRepo.GetQuizCourseID(ctx, quizID)
 	if err != nil {
 		return err
 	}
 
-	isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+	canTeachCourse, err := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
 	if err != nil {
 		return err
 	}
 
-	if !isCoTeacher {
+	if !canTeachCourse {
 		return fmt.Errorf("permission denied: you don't own this quiz")
 	}
 

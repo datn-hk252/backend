@@ -43,8 +43,8 @@ func (s *SkillAnalyticsService) verifyCourseAccess(
 	if course.CreatedBy == userID {
 		return nil
 	}
-	isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
-	if err != nil || !isCoTeacher {
+	canTeachCourse, err := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
+	if err != nil || !canTeachCourse {
 		return fmt.Errorf("permission denied: you don't own this course")
 	}
 	return nil

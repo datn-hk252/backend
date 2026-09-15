@@ -154,10 +154,10 @@ func (s *CourseService) GetCourse(ctx context.Context, courseID int64, userID in
 		return nil, fmt.Errorf("course is archived")
 	}
 
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
 
 	if course.Status == models.CourseStatusDraft {
-		if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+		if role != models.RoleAdmin && course.CreatedBy != userID && !canTeachCourse {
 			return nil, fmt.Errorf("unauthorized to view this course")
 		}
 	}
@@ -201,9 +201,9 @@ func (s *CourseService) UpdateCourse(ctx context.Context, courseID int64, req *d
 		}
 	}
 
-	// Must be system admin, creator or co-teacher
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
-	if !isAdmin && course.CreatedBy != userID && !isCoTeacher {
+	// Must be system admin, or one of the course's teachers
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
+	if !isAdmin && course.CreatedBy != userID && !canTeachCourse {
 		return fmt.Errorf("unauthorized to update this course")
 	}
 
@@ -351,8 +351,8 @@ func (s *CourseService) PublishCourse(ctx context.Context, courseID int64, userI
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !canTeachCourse {
 		return fmt.Errorf("unauthorized to publish this course")
 	}
 
@@ -437,8 +437,8 @@ func (s *CourseService) CreateSection(ctx context.Context, courseID int64, req *
 		return nil, fmt.Errorf("failed to get course: %w", err)
 	}
 
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !canTeachCourse {
 		return nil, fmt.Errorf("unauthorized to create section in this course")
 	}
 
@@ -551,8 +551,8 @@ func (s *CourseService) UpdateSection(ctx context.Context, sectionID int64, req 
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !canTeachCourse {
 		return fmt.Errorf("unauthorized to update this section")
 	}
 
@@ -599,8 +599,8 @@ func (s *CourseService) DeleteSection(ctx context.Context, sectionID int64, user
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !canTeachCourse {
 		return fmt.Errorf("unauthorized to delete this section")
 	}
 
@@ -634,8 +634,8 @@ func (s *CourseService) CreateContent(ctx context.Context, sectionID int64, req 
 		return nil, fmt.Errorf("failed to get course: %w", err)
 	}
 
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !canTeachCourse {
 		return nil, fmt.Errorf("unauthorized to create content in this section")
 	}
 
@@ -788,8 +788,8 @@ func (s *CourseService) UpdateContent(ctx context.Context, contentID int64, req 
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !canTeachCourse {
 		return fmt.Errorf("unauthorized to update this content")
 	}
 
@@ -863,8 +863,8 @@ func (s *CourseService) DeleteContent(ctx context.Context, contentID int64, user
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !canTeachCourse {
 		return fmt.Errorf("unauthorized to delete this content")
 	}
 
@@ -1178,8 +1178,8 @@ func (s *CourseService) ReorderSections(ctx context.Context, courseID int64, req
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !canTeachCourse {
 		return fmt.Errorf("unauthorized to reorder sections in this course")
 	}
 
@@ -1212,8 +1212,8 @@ func (s *CourseService) ReorderContents(ctx context.Context, sectionID int64, re
 		return fmt.Errorf("failed to get course: %w", err)
 	}
 
-	isCoTeacher, _ := s.courseRepo.IsCoTeacher(ctx, section.CourseID, userID)
-	if role != models.RoleAdmin && course.CreatedBy != userID && !isCoTeacher {
+	canTeachCourse, _ := s.courseRepo.IsCourseTeacher(ctx, section.CourseID, userID)
+	if role != models.RoleAdmin && course.CreatedBy != userID && !canTeachCourse {
 		return fmt.Errorf("unauthorized to reorder contents in this section")
 	}
 

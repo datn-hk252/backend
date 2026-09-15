@@ -351,9 +351,16 @@ type QuizResultResponse struct {
 // GRADING DTOs
 // ============================================
 
-// GradeAnswerRequest represents manual grading
+// GradeAnswerRequest represents manual grading.
+//
+// AnswerID comes from the path on POST /answers/:answerId/grade, but from the
+// body on POST /quizzes/:quizId/bulk-grade. It used to be tagged `json:"-"`,
+// which is right for the first route and fatal for the second: every entry in
+// a bulk request arrived with AnswerID = 0 and came back "answer not found",
+// so the endpoint could never grade anything. Reading it from the body serves
+// both - the single-answer handler overwrites it from the path afterwards.
 type GradeAnswerRequest struct {
-	AnswerID       int64   `json:"-"`
+	AnswerID       int64   `json:"answer_id"`
 	PointsEarned   float64 `json:"points_earned" binding:"required,min=0"`
 	GraderFeedback string  `json:"grader_feedback"`
 }
