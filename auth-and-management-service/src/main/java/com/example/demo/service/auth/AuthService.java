@@ -24,7 +24,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.Map;
 import java.util.Set;
+import java.security.SecureRandom;
 import java.util.Locale;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -130,16 +132,22 @@ public class AuthService {
             String code = clean(reg.getCode());
             if (name.isBlank()) errors.add("Row " + row + ": name is required");
             if (!email.matches("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")) errors.add("Row " + row + ": invalid email");
-            if (code.isBlank()) errors.add("Row " + row + ": code is required");
-            if (!seenEmails.add(email)) errors.add("Row " + row + ": duplicate email in file: " + email);
-            if (!seenCodes.add(code)) errors.add("Row " + row + ": duplicate code in file: " + code);
-
             LinkedHashSet<String> roles = new LinkedHashSet<>();
             if (reg.getRoles() != null) reg.getRoles().stream().map(this::normalizeRole).forEach(roles::add);
             if (roles.isEmpty()) roles.add(normalizeRole(reg.getRole()));
             for (String role : roles) {
                 if (!existingRoles.contains(role)) errors.add("Row " + row + ": unknown role " + role);
             }
+
+            // Roles are resolved before the code and the address are finalised:
+            // the code's prefix comes from the role, the address carries the
+            // code, and every check below - duplicates in the file, duplicates
+            // in the database - has to run on the values that get stored.
+            if (code.isBlank()) code = generateUserCode(roles, seenCodes);
+            email = withTeacherEmailTag(email, roles, code);
+
+            if (!seenEmails.add(email)) errors.add("Row " + row + ": duplicate email in file: " + email);
+            if (!seenCodes.add(code)) errors.add("Row " + row + ": duplicate code in file: " + code);
 
             LinkedHashSet<String> lmsRoles = new LinkedHashSet<>();
             if (reg.getLmsRoles() != null) {
@@ -232,6 +240,96 @@ public class AuthService {
 
     private String clean(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    /**
+     * Account codes the system hands out when the caller supplies none.
+     *
+     * The column is NOT NULL and unique - it is the number printed on rosters -
+     * so a blank one cannot simply be stored. Typing it by hand came from the
+     * university build this project forked, where the code was the student
+     * number a registrar already owned; a language centre has no such register,
+     * and asking staff to invent unique numbers only invites collisions.
+     *
+     * Random rather than sequential, because a counter would need locking to
+     * stay correct under a concurrent import, and the next number would tell
+     * anyone who received it how many accounts the centre has.
+     */
+    private static final SecureRandom CODE_RANDOM = new SecureRandom();
+    private static final int CODE_ATTEMPTS = 20;
+
+    private boolean isTeacherRole(Set<String> roles) {
+        return roles.stream()
+                .anyMatch(role -> role.equals("ROLE_TEACHER") || role.equals("ROLE_MANAGER"));
+    }
+
+    private String codePrefixFor(Set<String> roles) {
+        if (isTeacherRole(roles)) return "GV";
+        if (roles.contains("ROLE_ADMIN")) return "QT";
+        return "HV";
+    }
+
+    private String generateUserCode(Set<String> roles, Set<String> takenInBatch) {
+        String prefix = codePrefixFor(roles);
+        for (int attempt = 0; attempt < CODE_ATTEMPTS; attempt++) {
+            String candidate = prefix + String.format("%06d", CODE_RANDOM.nextInt(1_000_000));
+            // Both halves matter: the batch is not in the database yet, and the
+            // database holds codes this batch never saw.
+            if (takenInBatch.contains(candidate)) continue;
+            if (userRepository.existsByCode(candidate)) continue;
+            return candidate;
+        }
+        throw new BadRequestException(
+                "Could not allocate a free account code after " + CODE_ATTEMPTS + " tries");
+    }
+
+    /** Marks the address as a teacher account; the staff code follows it. */
+    private static final String TEACHER_TAG_PREFIX = "gv";
+
+    /** Characters that may appear in the tag; anything else in a code is dropped. */
+    private static final Pattern UNSAFE_IN_EMAIL_TAG = Pattern.compile("[^a-z0-9._-]");
+
+    /**
+     * Tags a teacher's address with gv plus their staff code, so one mailbox
+     * can hold several accounts.
+     *
+     * The address becomes {@code someone+gv<code>@gmail.com}. Gmail and most
+     * other hosts deliver that to {@code someone@gmail.com}, so the centre can
+     * sign a teacher up on a mailbox that already carries an account, and a
+     * second teacher after that.
+     *
+     * This rewrites what gets stored, which is also the address the welcome
+     * mail goes to and the one the teacher logs in with. Worth knowing: not
+     * every mail host accepts plus-addressing - some school and company
+     * domains reject it - and for those the welcome mail will not arrive. The
+     * admin screen can resend a password, but the address itself has to be
+     * corrected from the user's profile.
+     */
+    private String withTeacherEmailTag(String email, Set<String> roles, String code) {
+        if (!isTeacherRole(roles)) return email;
+
+        // The tag reads gv<code>: "gv" says which kind of account this is, the
+        // code keeps two teachers on one mailbox apart. Codes are already
+        // unique - checked against the batch and against the database above -
+        // so the tagged addresses inherit that uniqueness for free.
+        String tag = UNSAFE_IN_EMAIL_TAG.matcher(code.toLowerCase(Locale.ROOT)).replaceAll("");
+        // A code made entirely of characters an address cannot carry leaves
+        // nothing to tag with; better an untagged address than a broken one.
+        if (tag.isEmpty()) return email;
+        // A centre that already numbers its teachers GV001 should not end up
+        // with gvgv001.
+        if (!tag.startsWith(TEACHER_TAG_PREFIX)) tag = TEACHER_TAG_PREFIX + tag;
+
+        int at = email.lastIndexOf('@');
+        // A malformed address was already reported above; leave it as typed so
+        // the error names what the admin actually entered.
+        if (at <= 0) return email;
+
+        String local = email.substring(0, at);
+        // An address that already carries a tag is the admin's own choice.
+        if (local.contains("+")) return email;
+
+        return local + "+" + tag + email.substring(at);
     }
 
     private String normalizeRole(String role) {
