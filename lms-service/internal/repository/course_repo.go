@@ -922,17 +922,31 @@ func (r *CourseRepository) ListCoTeachers(ctx context.Context, courseID int64) (
 	return coTeachers, rows.Err()
 }
 
-// IsCoTeacher checks if a user is a co-teacher of a course
-func (r *CourseRepository) IsCoTeacher(ctx context.Context, courseID, userID int64) (bool, error) {
+// IsCourseTeacher answers the question every teacher-facing route asks: may
+// this user act on this course as one of its teachers? Three ways to qualify,
+// and they are not interchangeable - author, co-teacher, or the teacher of a
+// class running the course.
+//
+// The third arrived with the class model in V020 and is why this function
+// exists. Teaching assignment moved to the class, but every permission check
+// still asked IsCoTeacher, so a teacher handed a class could not open its
+// material, write a quiz for it, or grade their own students. Listing courses
+// was fixed on its own first; this is the same hole everywhere else.
+func (r *CourseRepository) IsCourseTeacher(ctx context.Context, courseID, userID int64) (bool, error) {
 	query := `
 		SELECT EXISTS(
+			SELECT 1 FROM courses c WHERE c.id = $1 AND c.created_by = $2
+		) OR EXISTS(
 			SELECT 1 FROM course_co_teachers
 			WHERE course_id = $1 AND user_id = $2
+		) OR EXISTS(
+			SELECT 1 FROM classes
+			WHERE course_id = $1 AND teacher_id = $2
 		)
 	`
-	var exists bool
-	err := r.db.QueryRowContext(ctx, query, courseID, userID).Scan(&exists)
-	return exists, err
+	var allowed bool
+	err := r.db.QueryRowContext(ctx, query, courseID, userID).Scan(&allowed)
+	return allowed, err
 }
 
 // ReorderSections updates the order_index of sections in a course using a transaction

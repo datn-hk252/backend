@@ -353,7 +353,9 @@ func (r *AnalyticsRepository) GetStudentQuizScores(ctx context.Context, courseID
 			MAX(va.earned_points)   AS best_points,
 			q.total_points,
 			COUNT(qa.id)            AS attempts_count,
-			BOOL_OR(COALESCE(va.is_passed, FALSE)) AS is_passed,
+			-- BOOL_OR skips NULLs, so this is TRUE only when some attempt was
+			-- actually graded and passed, and NULL while one waits for a teacher.
+			BOOL_OR(va.is_passed) AS is_passed,
 			q.passing_score,
 			MAX(qa.submitted_at)    AS last_attempt_at,
 			CASE
@@ -361,10 +363,14 @@ func (r *AnalyticsRepository) GetStudentQuizScores(ctx context.Context, courseID
 					THEN 'not_started'
 				WHEN SUM(CASE WHEN qa.status = 'IN_PROGRESS' THEN 1 ELSE 0 END) > 0
 					THEN 'in_progress'
-				WHEN BOOL_OR(COALESCE(va.is_passed, FALSE))
+				WHEN BOOL_OR(va.is_passed)
 					THEN 'passed'
+				-- is_passed stays NULL while an essay or short answer waits for a
+				-- teacher. Folding that into 'failed' told the learner they had not
+				-- passed a paper nobody had marked yet.
+				WHEN BOOL_OR(va.is_passed IS NULL)
+					THEN 'submitted'
 				WHEN COUNT(qa.id) FILTER (WHERE qa.status IN ('SUBMITTED','GRADED')) > 0
-					AND NOT BOOL_OR(COALESCE(va.is_passed, FALSE))
 					THEN 'failed'
 				ELSE 'submitted'
 			END AS status

@@ -196,9 +196,9 @@ func (s *EnrollmentService) GetCourseLearners(ctx context.Context, courseID int6
 	}
 
 	if course.CreatedBy != userID && role != "ADMIN" {
-		isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
-		if err != nil || !isCoTeacher {
-			return nil, fmt.Errorf("unauthorized: only course creator or co-teacher can view learners")
+		canTeachCourse, err := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
+		if err != nil || !canTeachCourse {
+			return nil, fmt.Errorf("unauthorized: only a teacher of this course can view learners")
 		}
 	}
 
@@ -233,8 +233,8 @@ func (s *EnrollmentService) AcceptEnrollment(ctx context.Context, enrollmentID, 
 	}
 
 	if course.CreatedBy != userID && role != "ADMIN" {
-		isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
-		if err != nil || !isCoTeacher {
+		canTeachCourse, err := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
+		if err != nil || !canTeachCourse {
 			return fmt.Errorf("unauthorized")
 		}
 	}
@@ -256,8 +256,8 @@ func (s *EnrollmentService) RejectEnrollment(ctx context.Context, enrollmentID, 
 	}
 
 	if course.CreatedBy != userID && role != "ADMIN" {
-		isCoTeacher, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
-		if err != nil || !isCoTeacher {
+		canTeachCourse, err := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
+		if err != nil || !canTeachCourse {
 			return fmt.Errorf("unauthorized")
 		}
 	}
@@ -282,12 +282,12 @@ func (s *EnrollmentService) BulkEnroll(
 	total := len(studentIDs)
 
 	course, err := s.courseRepo.GetByID(ctx, courseID)
-	isCoTeacher := false
+	canTeachCourse := false
 	if err == nil && course.CreatedBy != teacherID && role != "ADMIN" {
-		isCoTeacher, _ = s.courseRepo.IsCoTeacher(ctx, courseID, teacherID)
+		canTeachCourse, _ = s.courseRepo.IsCourseTeacher(ctx, courseID, teacherID)
 	}
 
-	if err != nil || (course.CreatedBy != teacherID && role != "ADMIN" && !isCoTeacher) {
+	if err != nil || (course.CreatedBy != teacherID && role != "ADMIN" && !canTeachCourse) {
 		return &dto.BulkEnrollmentResponse{
 			TotalCount: total,
 			Succeeded:  []int64{},

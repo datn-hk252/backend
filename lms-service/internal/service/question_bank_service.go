@@ -44,11 +44,11 @@ func (s *QuestionBankService) verifyCourseEditAccess(ctx context.Context, course
 	if course.CreatedBy == userID {
 		return nil
 	}
-	isCo, err := s.courseRepo.IsCoTeacher(ctx, courseID, userID)
+	canTeachCourse, err := s.courseRepo.IsCourseTeacher(ctx, courseID, userID)
 	if err != nil {
 		return err
 	}
-	if !isCo {
+	if !canTeachCourse {
 		return fmt.Errorf("permission denied: not a teacher of this course")
 	}
 	return nil

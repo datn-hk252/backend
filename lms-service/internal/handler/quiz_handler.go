@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"example/hello/internal/dto"
@@ -26,6 +27,24 @@ func NewQuizHandler(quizService *service.QuizService, storage storage.Storage) *
 		quizService: quizService,
 		storage:     storage,
 	}
+}
+
+// respondQuizError maps the quiz service's errors onto status codes.
+//
+// Every route here used to answer 400 for anything the service returned, so a
+// refused permission arrived as "bad request": the caller cannot tell a
+// malformed body from a door closed to them, and the browser has nothing to
+// redirect on. Same shape as respondClassError. Only the permission case is
+// reclassified - everything else keeps the status and code it had.
+func respondQuizError(c *gin.Context, err error, code string) {
+	message := err.Error()
+	if strings.Contains(message, "permission denied") ||
+		strings.Contains(message, "unauthorized") ||
+		strings.Contains(message, "don't own") {
+		c.JSON(http.StatusForbidden, dto.NewErrorResponse("forbidden", message))
+		return
+	}
+	c.JSON(http.StatusBadRequest, dto.NewErrorResponse(code, message))
 }
 
 // ============================================
@@ -51,14 +70,14 @@ func (h *QuizHandler) CreateQuiz(c *gin.Context) {
 
 	var req dto.CreateQuizRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		respondQuizError(c, err, "invalid_request")
 		return
 	}
 
 	quiz, err := h.quizService.CreateQuiz(c.Request.Context(), &req, userID.(int64), userRole.(string))
 	if err != nil {
 		logger.Error("Failed to create quiz", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("creation_failed", err.Error()))
+		respondQuizError(c, err, "creation_failed")
 		return
 	}
 
@@ -124,14 +143,14 @@ func (h *QuizHandler) UpdateQuiz(c *gin.Context) {
 
 	var req dto.UpdateQuizRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		respondQuizError(c, err, "invalid_request")
 		return
 	}
 
 	quiz, err := h.quizService.UpdateQuiz(c.Request.Context(), quizID, &req, userID.(int64), userRole.(string))
 	if err != nil {
 		logger.Error("Failed to update quiz", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("update_failed", err.Error()))
+		respondQuizError(c, err, "update_failed")
 		return
 	}
 
@@ -163,7 +182,7 @@ func (h *QuizHandler) DeleteQuiz(c *gin.Context) {
 
 	if err := h.quizService.DeleteQuiz(c.Request.Context(), quizID, userID.(int64), userRole.(string)); err != nil {
 		logger.Error("Failed to delete quiz", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("deletion_failed", err.Error()))
+		respondQuizError(c, err, "deletion_failed")
 		return
 	}
 
@@ -200,7 +219,7 @@ func (h *QuizHandler) CreateQuestion(c *gin.Context) {
 
 	var req dto.CreateQuestionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		respondQuizError(c, err, "invalid_request")
 		return
 	}
 
@@ -209,7 +228,7 @@ func (h *QuizHandler) CreateQuestion(c *gin.Context) {
 	question, err := h.quizService.CreateQuestion(c.Request.Context(), &req, userID.(int64), userRole.(string))
 	if err != nil {
 		logger.Error("Failed to create question", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("creation_failed", err.Error()))
+		respondQuizError(c, err, "creation_failed")
 		return
 	}
 
@@ -242,14 +261,14 @@ func (h *QuizHandler) BatchCreateQuestions(c *gin.Context) {
 
 	var req dto.BatchCreateQuestionsRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		respondQuizError(c, err, "invalid_request")
 		return
 	}
 
 	questions, err := h.quizService.BatchCreateQuestions(c.Request.Context(), quizID, req.Questions, userID.(int64), userRole.(string))
 	if err != nil {
 		logger.Error("Failed to batch create questions", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("batch_creation_failed", err.Error()))
+		respondQuizError(c, err, "batch_creation_failed")
 		return
 	}
 
@@ -282,14 +301,14 @@ func (h *QuizHandler) UpdateQuestion(c *gin.Context) {
 
 	var req dto.UpdateQuestionRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		respondQuizError(c, err, "invalid_request")
 		return
 	}
 
 	question, err := h.quizService.UpdateQuestion(c.Request.Context(), questionID, &req, userID.(int64), userRole.(string))
 	if err != nil {
 		logger.Error("Failed to update question", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("update_failed", err.Error()))
+		respondQuizError(c, err, "update_failed")
 		return
 	}
 
@@ -321,7 +340,7 @@ func (h *QuizHandler) DeleteQuestion(c *gin.Context) {
 
 	if err := h.quizService.DeleteQuestion(c.Request.Context(), questionID, userID.(int64), userRole.(string)); err != nil {
 		logger.Error("Failed to delete question", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("deletion_failed", err.Error()))
+		respondQuizError(c, err, "deletion_failed")
 		return
 	}
 
@@ -356,7 +375,7 @@ func (h *QuizHandler) ListQuestions(c *gin.Context) {
 	questions, err := h.quizService.ListQuestions(c.Request.Context(), quizID, userID.(int64), userRole.(string), includeCorrectAnswers)
 	if err != nil {
 		logger.Error("Failed to list questions", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("list_failed", err.Error()))
+		respondQuizError(c, err, "list_failed")
 		return
 	}
 
@@ -394,7 +413,7 @@ func (h *QuizHandler) StartQuizAttempt(c *gin.Context) {
 	attempt, err := h.quizService.StartQuizAttempt(c.Request.Context(), quizID, userID.(int64), ipAddress, userAgent)
 	if err != nil {
 		logger.Error("Failed to start quiz attempt", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("start_failed", err.Error()))
+		respondQuizError(c, err, "start_failed")
 		return
 	}
 
@@ -425,7 +444,7 @@ func (h *QuizHandler) SubmitAnswer(c *gin.Context) {
 
 	var req dto.SubmitAnswerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		respondQuizError(c, err, "invalid_request")
 		return
 	}
 
@@ -434,7 +453,7 @@ func (h *QuizHandler) SubmitAnswer(c *gin.Context) {
 	answer, err := h.quizService.SubmitAnswer(c.Request.Context(), &req, userID.(int64))
 	if err != nil {
 		logger.Error("Failed to submit answer", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("submission_failed", err.Error()))
+		respondQuizError(c, err, "submission_failed")
 		return
 	}
 
@@ -465,7 +484,7 @@ func (h *QuizHandler) SubmitQuiz(c *gin.Context) {
 	result, err := h.quizService.SubmitQuiz(c.Request.Context(), attemptID, userID.(int64))
 	if err != nil {
 		logger.Error("Failed to submit quiz", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("submission_failed", err.Error()))
+		respondQuizError(c, err, "submission_failed")
 		return
 	}
 
@@ -497,7 +516,7 @@ func (h *QuizHandler) GetQuizResult(c *gin.Context) {
 	result, err := h.quizService.GetQuizResult(c.Request.Context(), attemptID, userID.(int64))
 	if err != nil {
 		logger.Error("Failed to get quiz result", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("retrieval_failed", err.Error()))
+		respondQuizError(c, err, "retrieval_failed")
 		return
 	}
 
@@ -529,7 +548,7 @@ func (h *QuizHandler) ReviewQuiz(c *gin.Context) {
 	review, err := h.quizService.ReviewQuiz(c.Request.Context(), attemptID, userID.(int64))
 	if err != nil {
 		logger.Error("Failed to review quiz", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("review_failed", err.Error()))
+		respondQuizError(c, err, "review_failed")
 		return
 	}
 
@@ -566,7 +585,7 @@ func (h *QuizHandler) GradeAnswer(c *gin.Context) {
 
 	var req dto.GradeAnswerRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		respondQuizError(c, err, "invalid_request")
 		return
 	}
 
@@ -574,7 +593,7 @@ func (h *QuizHandler) GradeAnswer(c *gin.Context) {
 
 	if err := h.quizService.GradeAnswer(c.Request.Context(), &req, userID.(int64), userRole.(string)); err != nil {
 		logger.Error("Failed to grade answer", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("grading_failed", err.Error()))
+		respondQuizError(c, err, "grading_failed")
 		return
 	}
 
@@ -600,7 +619,7 @@ func (h *QuizHandler) BulkGrade(c *gin.Context) {
 
 	var req dto.BulkGradeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("invalid_request", err.Error()))
+		respondQuizError(c, err, "invalid_request")
 		return
 	}
 
@@ -635,7 +654,7 @@ func (h *QuizHandler) ListAnswersForGrading(c *gin.Context) {
 	answers, err := h.quizService.ListStudentAnswersForGrading(c.Request.Context(), quizID, userID.(int64), userRole.(string))
 	if err != nil {
 		logger.Error("Failed to list answers for grading", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("list_failed", err.Error()))
+		respondQuizError(c, err, "list_failed")
 		return
 	}
 
@@ -749,7 +768,7 @@ func (h *QuizHandler) UploadQuestionImage(c *gin.Context) {
 	if err := h.quizService.AddQuestionImage(c.Request.Context(), questionID, &image, userID.(int64), userRole.(string)); err != nil {
 		logger.Error("Failed to add image to question", err)
 		_ = h.storage.Delete(c.Request.Context(), filename)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("update_failed", err.Error()))
+		respondQuizError(c, err, "update_failed")
 		return
 	}
 
@@ -796,7 +815,7 @@ func (h *QuizHandler) DeleteQuestionImage(c *gin.Context) {
 
 	if err := h.quizService.RemoveQuestionImage(c.Request.Context(), questionID, imageID, userID.(int64), userRole.(string)); err != nil {
 		logger.Error("Failed to remove image from question", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("delete_failed", err.Error()))
+		respondQuizError(c, err, "delete_failed")
 		return
 	}
 
@@ -832,7 +851,7 @@ func (h *QuizHandler) ListQuestionImages(c *gin.Context) {
 	images, err := h.quizService.ListQuestionImages(c.Request.Context(), questionID, userID.(int64), userRole.(string))
 	if err != nil {
 		logger.Error("Failed to list question images", err)
-		c.JSON(http.StatusBadRequest, dto.NewErrorResponse("list_failed", err.Error()))
+		respondQuizError(c, err, "list_failed")
 		return
 	}
 
